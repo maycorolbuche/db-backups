@@ -1,2 +1,14 @@
 timezone: America/Sao_Paulo
-databases: {}
+databases:
+  mx-sys-admin:
+    name: MX Soft | Admin
+    type: mysql
+    executor: actions
+    credentials_env: DB_CREDENTIALS_MX_SYS_ADMIN
+    schedule: "15 * * * *"
+    grace_minutes: 40
+    keep: 3
+    max_storage_mb: 500
+    ignore_data:
+      - ACESSOS
+      - LOGS_PAGINA
