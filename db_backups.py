@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from contextlib import ExitStack, closing
@@ -27,6 +28,20 @@ from croniter import croniter
 
 STAMP = "%Y%m%dT%H%M%S%fZ"
 OBJECT_NAME = re.compile(r"(\d{8}T\d{12}Z)_(manual|\d{8}T\d{12}Z)_[0-9a-f]{32}\.sql\.gz(?:\.age)?")
+
+
+HASH_SQL_STREAM = """
+import hashlib
+import sys
+from pathlib import Path
+
+digest = hashlib.sha256()
+while chunk := sys.stdin.buffer.read(1024 * 1024):
+    digest.update(chunk)
+    sys.stdout.buffer.write(chunk)
+sys.stdout.buffer.flush()
+Path(sys.argv[1]).write_text(digest.hexdigest(), encoding="ascii")
+"""
 
 
 class BackupError(Exception):
@@ -196,9 +211,11 @@ class Storage:
     def metadata(self, key):
         return self.s3.head_object(Bucket=self.bucket, Key=key)["Metadata"]
 
-    def upload(self, path, key, sha256):
-        self.s3.upload_file(str(path), self.bucket, key,
-                            ExtraArgs={"Metadata": {"sha256": sha256}})
+    def upload(self, path, key, sha256, sql_sha256=None):
+        metadata = {"sha256": sha256}
+        if sql_sha256:
+            metadata["sql-sha256"] = sql_sha256
+        self.s3.upload_file(str(path), self.bucket, key, ExtraArgs={"Metadata": metadata})
         response = self.s3.get_object(Bucket=self.bucket, Key=key)
         with closing(response["Body"]) as body:
             digest = hashlib.sha256()
@@ -390,9 +407,9 @@ def selected_routines(command, database, kind, deadline):
         collation = routine[0].get("collation_connection") or ""
         if not re.fullmatch(r"[A-Z0-9_,]*", mode) or not re.fullmatch(r"[a-zA-Z0-9_]+", collation):
             raise BackupError(f"Metadados inválidos na definição de {kind}.")
-        delimiter = ";;" + uuid4().hex
+        delimiter = ";;" + hashlib.sha256(definition.encode("utf-8")).hexdigest()[:24]
         while delimiter in definition:
-            delimiter = ";;" + uuid4().hex
+            delimiter += "x"
         lines.extend([
             f"SET SESSION sql_mode = '{mode}';",
             f"SET SESSION collation_connection = '{collation}';",
@@ -423,7 +440,7 @@ def make_archive(db, directory, output):
     options.write_text("[client]\n" + settings)
     options.chmod(0o600)
     client = "mysqldump" if db["type"] == "mysql" else "mariadb-dump"
-    flags = ["--single-transaction", "--quick", "--hex-blob"]
+    flags = ["--single-transaction", "--quick", "--hex-blob", "--skip-dump-date", "--order-by-primary"]
     if db["type"] == "mysql":
         flags += ["--no-tablespaces", "--set-gtid-purged=OFF"]
     flags += tls_flags
@@ -459,6 +476,7 @@ def make_archive(db, directory, output):
             kind = "PROCEDURE" if export_procedures else "FUNCTION"
             routine_sql = selected_routines(metadata_command, database, kind, deadline)
 
+    sql_hash_path = directory / "sql.sha256"
     with ExitStack() as streams:
         destination = subprocess.PIPE if recipient else streams.enter_context(output.open("xb"))
         compressor = streams.enter_context(subprocess.Popen(
@@ -473,15 +491,21 @@ def make_archive(db, directory, output):
                 ))
                 processes.append(("Criptografia", encryptor))
                 compressor.stdout.close()
+            hasher = streams.enter_context(subprocess.Popen(
+                [sys.executable, "-c", HASH_SQL_STREAM, str(sql_hash_path)],
+                stdin=subprocess.PIPE, stdout=compressor.stdin, stderr=subprocess.DEVNULL
+            ))
+            processes.append(("Hash do SQL", hasher))
+            compressor.stdin.close()
             if routine_sql:
-                compressor.stdin.write(routine_sql)
-                compressor.stdin.flush()
+                hasher.stdin.write(routine_sql)
+                hasher.stdin.flush()
             for label, dump in dump_sections(db, database, command, excluded_views):
-                result = subprocess.run(dump, stdout=compressor.stdin, stderr=subprocess.PIPE,
+                result = subprocess.run(dump, stdout=hasher.stdin, stderr=subprocess.PIPE,
                                         timeout=max(0, deadline - time.monotonic()))
                 if result.returncode:
                     raise BackupError(f"{label}: {dump_error(result.stderr, result.returncode)}")
-            compressor.stdin.close()
+            hasher.stdin.close()
             for label, process in reversed(processes):
                 code = process.wait(timeout=max(0, deadline - time.monotonic()))
                 if code:
@@ -490,6 +514,7 @@ def make_archive(db, directory, output):
             for _, process in reversed(processes):
                 if process.poll() is None:
                     process.kill()
+    return sql_hash_path.read_text(encoding="ascii")
 
 
 def slot_of(obj):
@@ -536,7 +561,18 @@ def run_backup(store, db_id, db, zone, slot):
             archive = directory / f"backup{suffix}"
             phase = "exportação, compactação e criptografia" if db.get("encrypt", True) else "exportação e compactação"
             validate_table_filters(db_id, db)
-            make_archive(db, directory, archive)
+            sql_sha256 = make_archive(db, directory, archive)
+            phase = "comparação com o último backup no R2"
+            if slot != "manual" and backups and backups[0]["Key"].endswith(suffix):
+                previous_key = backups[0]["Key"]
+                if store.metadata(previous_key).get("sql-sha256") == sql_sha256:
+                    store.write(completed_key, {"slot": slot})
+                    finish(store, status_key, channel,
+                           {"at": stamp(start), "error": None, "outcome": "unchanged"},
+                           f"ℹ️ Backup verificado, sem alterações — {context}\n"
+                           f"O SQL exportado é idêntico ao último backup. Nenhuma nova cópia foi gravada no R2.\n"
+                           f"Última cópia salva: {display_stamp(last, zone)}")
+                    return True
             size = archive.stat().st_size
             phase = "cota de armazenamento"
             retained, expired, limited = retention_plan(backups, {"Key": key, "Size": size}, db["keep"], limit)
@@ -544,7 +580,7 @@ def run_backup(store, db_id, db, zone, slot):
                 checksum = hashlib.file_digest(source, "sha256").hexdigest()
             phase = "upload e verificação no R2"
             try:
-                store.upload(archive, key, checksum)
+                store.upload(archive, key, checksum, sql_sha256)
                 store.mark_verified(key, checksum)
                 phase = "rotação no R2"
                 for obj in reversed(expired):
@@ -570,7 +606,7 @@ def run_backup(store, db_id, db, zone, slot):
                     f"{len(retained)} de {db['keep']} cópias ({usage:,} bytes ocupados).")
     if slot != "manual":
         store.write(completed_key, {"slot": slot})
-    finish(store, status_key, channel, {"at": stamp(start), "error": None}, message)
+    finish(store, status_key, channel, {"at": stamp(start), "error": None, "outcome": "uploaded"}, message)
     return True
 
 
