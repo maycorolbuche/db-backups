@@ -31,11 +31,12 @@ jobs:
       TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
       DB_CREDENTIALS: ${{ secrets.DB_CREDENTIALS }}
       DB_CREDENTIALS_MX_SYS_ADMIN: ${{ secrets.DB_CREDENTIALS_MX_SYS_ADMIN }}
+      DB_CREDENTIALS_ELETRONICAUTOMACOES: ${{ secrets.DB_CREDENTIALS_ELETRONICAUTOMACOES }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           cache: pip
       - name: Instalar dependências Python
         run: python -m pip install -r requirements.txt
