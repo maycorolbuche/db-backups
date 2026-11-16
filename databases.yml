@@ -3,6 +3,7 @@ databases:
   mx-sys-admin:
     name: MX Soft | Admin
     type: mysql
+    encrypt: false
     executor: actions
     credentials_env: DB_CREDENTIALS_MX_SYS_ADMIN
     schedule: "*/10 * * * *"
