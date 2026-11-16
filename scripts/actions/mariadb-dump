@@ -6,4 +6,4 @@ directory=$(dirname "$options")
 # Preserve paths to the private option file and any CA stored in the checkout.
 exec docker run --rm --network host --user "$(id -u):$(id -g)" \
   --volume "$directory:$directory:ro" --volume "$PWD:$PWD:ro" --workdir "$PWD" \
-  --entrypoint mariadb-dump mariadb:11.4 "$@"
+  --entrypoint "$(basename "$0")" mariadb:11.4 "$@"

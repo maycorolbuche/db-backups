@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from db_backups import BackupError, dump_error, dump_sections, dump_tls_flags, load_config, validate_table_filters
+from db_backups import BackupError, dump_error, dump_sections, dump_tls_flags, load_config, selected_routines, validate_table_filters
 
 
 class TableFiltersTests(unittest.TestCase):
@@ -108,3 +109,35 @@ class DumpStructureErrorTests(unittest.TestCase):
         result = dump_error(stderr, 2)
         self.assertIn("sem permissão para exportar a definição de uma rotina", result)
         self.assertNotIn("private-user", result)
+
+
+class ExportObjectTests(unittest.TestCase):
+    def test_routine_switches_disable_combined_dump(self):
+        for procedures, functions in [(False, False), (True, False), (False, True)]:
+            with self.subTest(procedures=procedures, functions=functions):
+                config = {"type": "mysql", "export_procedures": procedures, "export_functions": functions}
+                sections = dump_sections(config, "app", ["mysqldump"], ["report_view"])
+                self.assertNotIn("--routines", sections[0][1])
+                self.assertIn("--ignore-table=app.report_view", sections[0][1])
+
+    def test_rejects_non_boolean_export_switch(self):
+        with self.assertRaisesRegex(BackupError, "export_views"):
+            validate_table_filters("app", {"export_views": "false"})
+
+    def test_selects_one_type_without_inspecting_the_other(self):
+        for kind in ("PROCEDURE", "FUNCTION"):
+            with self.subTest(kind=kind), patch("db_backups.query_schema") as query:
+                query.side_effect = [
+                    [{"ROUTINE_NAME": "sample"}],
+                    [{"Create Database": "CREATE DATABASE `app`"}],
+                    [{
+                        f"Create {kind.title()}": f"CREATE {kind} `sample`()",
+                        "sql_mode": "NO_BACKSLASH_ESCAPES",
+                        "collation_connection": "utf8mb4_general_ci",
+                    }],
+                ]
+                sql = selected_routines(["mysql"], "app", kind, 0).decode()
+                self.assertIn(f"ROUTINE_TYPE = '{kind}'", query.call_args_list[0].args[1])
+                self.assertEqual(query.call_args_list[2].args[1], f"SHOW CREATE {kind} `sample`")
+                self.assertIn(f"CREATE {kind} `sample`()", sql)
+                self.assertIn("CREATE DATABASE IF NOT EXISTS `app`", sql)

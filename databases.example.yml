@@ -12,6 +12,9 @@ databases:
     grace_minutes: 40
     keep: 10
     max_storage_mb: 500 # Opcional. Omita para limitar apenas pela quantidade.
+    export_procedures: true # Opcional. O padrão é true.
+    export_functions: true # Independente de export_procedures.
+    export_views: true
     ignore_data: # Preserva a estrutura e omite os dados.
       - activity_log
       - audit_logs
