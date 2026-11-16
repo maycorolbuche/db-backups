@@ -45,4 +45,11 @@ databases:
     export_functions: false
     export_views: false
     ignore_data:
+      - AGENDA_LOGS
       - LOGS
+      - LOGS_EVENTOS
+      - LOGS_PLANTOES_AUTOMATICOS
+      - _BKP_AGENDA
+      - _BKP_AGENDA_RESP
+    ignore_table:
+      - ___BKP_DISP_FUNCIONARIOS
