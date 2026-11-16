@@ -60,3 +60,14 @@ class DumpErrorTests(unittest.TestCase):
                 result = dump_error(stderr, 2)
                 self.assertIn(reason, result)
                 self.assertNotIn("private-", result)
+
+    def test_reports_only_the_origin_ip_on_connection_rejection(self):
+        cases = [
+            (b"Got error: 1045: Access denied for user 'private-user'@'203.0.113.10'", "203.0.113.10"),
+            (b"Got error: 1130: Host '2001:db8::10' is not allowed to connect", "2001:db8::10"),
+        ]
+        for stderr, address in cases:
+            with self.subTest(address=address):
+                result = dump_error(stderr, 2)
+                self.assertIn(f"IP de origem informado pelo servidor: {address}.", result)
+                self.assertNotIn("private-user", result)
