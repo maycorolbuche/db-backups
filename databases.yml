@@ -24,7 +24,22 @@ databases:
     credentials_env: DB_CREDENTIALS_ELETRONICAUTOMACOES
     schedule: "15 1 * * *"
     grace_minutes: 40
-    keep: 15
+    keep: 10
+    max_storage_mb: 500
+    export_procedures: false
+    export_functions: false
+    export_views: false
+    ignore_data:
+      - LOGS
+  dgh:
+    name: DGH
+    type: mysql
+    encrypt: false
+    executor: actions
+    credentials_env: DB_CREDENTIALS_DGH
+    schedule: "0/10 * * * *"
+    grace_minutes: 40
+    keep: 10
     max_storage_mb: 500
     export_procedures: false
     export_functions: false
