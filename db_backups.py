@@ -322,17 +322,40 @@ def dump_error(stderr, returncode):
     return f"O cliente de dump encerrou com código {returncode}."
 
 
+def dump_tls_flags(engine, credentials):
+    host = credentials.get("host")
+    remote = host is not None and host not in ("localhost", "127.0.0.1", "::1")
+    mode = credentials.pop("ssl-mode", None)
+    if engine == "mysql":
+        if mode is not None and mode not in ("REQUIRED", "VERIFY_IDENTITY"):
+            raise BackupError("ssl-mode deve ser REQUIRED ou VERIFY_IDENTITY.")
+        if mode is None and not remote:
+            return []
+        mode = mode or "VERIFY_IDENTITY"
+        if mode == "VERIFY_IDENTITY" and not credentials.get("ssl-ca"):
+            raise BackupError("Configure ssl-ca para a conexão MySQL com VERIFY_IDENTITY.")
+        return [f"--ssl-mode={mode}"]
+    if mode is not None:
+        raise BackupError("ssl-mode é uma opção do cliente MySQL.")
+    if remote:
+        if not credentials.get("ssl-ca"):
+            raise BackupError("Configure ssl-ca para a conexão MariaDB remota.")
+        return ["--ssl-verify-server-cert"]
+    return []
+
+
 def make_archive(db, directory, output):
     try:
         credentials = json.loads(os.environ[db["credentials_env"]])
         database = credentials.pop("database")
         if not isinstance(database, str) or not database or database.startswith("-") or "\0" in database:
             raise ValueError
-        allowed = {"host", "port", "user", "password", "socket", "ssl-ca"}
+        allowed = {"host", "port", "user", "password", "socket", "ssl-ca", "ssl-mode"}
         if set(credentials) - allowed or not {"user", "password"} <= credentials.keys():
             raise ValueError
     except (ValueError, TypeError, AttributeError, KeyError):
         raise BackupError("Credenciais do banco ausentes ou inválidas.") from None
+    tls_flags = dump_tls_flags(db["type"], credentials)
     options = directory / "client.cnf"
     settings = "".join(f"{key}={option_value(value)}\n" for key, value in credentials.items())
     options.write_text("[client]\n" + settings)
@@ -341,14 +364,7 @@ def make_archive(db, directory, output):
     flags = ["--single-transaction", "--quick", "--hex-blob"]
     if db["type"] == "mysql":
         flags += ["--no-tablespaces", "--set-gtid-purged=OFF"]
-        if "host" in credentials and credentials["host"] not in {"localhost", "127.0.0.1", "::1"}:
-            if "ssl-ca" not in credentials:
-                raise BackupError("Configure ssl-ca para a conexão MySQL remota.")
-            flags.append("--ssl-mode=VERIFY_IDENTITY")
-    elif "host" in credentials and credentials["host"] not in {"localhost", "127.0.0.1", "::1"}:
-        if "ssl-ca" not in credentials:
-            raise BackupError("Configure ssl-ca para a conexão MariaDB remota.")
-        flags.append("--ssl-verify-server-cert")
+    flags += tls_flags
     recipient = os.environ["AGE_RECIPIENT"].strip()
     if not re.fullmatch(r"age1[0-9a-z]+", recipient):
         raise BackupError("AGE_RECIPIENT deve conter uma chave pública age.")
