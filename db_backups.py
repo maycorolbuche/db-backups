@@ -2,6 +2,7 @@
 import argparse
 import fcntl
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -300,7 +301,20 @@ def dump_error(stderr, returncode):
             "2026": "falha de TLS ou na validação do certificado",
             "2059": "plugin de autenticação indisponível no cliente",
         }
-        return f"Erro MySQL/MariaDB {code}: {reasons.get(code, 'operação recusada pelo cliente ou servidor')}."
+        reason = reasons.get(code, "operação recusada pelo cliente ou servidor")
+        result = f"Erro MySQL/MariaDB {code}: {reason}."
+        if code in {"1045", "1130"}:
+            origin = re.search(r"@'([^']+)'", message) if code == "1045" else re.search(
+                r"(?i)\bhost '([^']+)' is not allowed", message
+            )
+            if origin:
+                try:
+                    address = ipaddress.ip_address(origin.group(1))
+                except ValueError:
+                    pass
+                else:
+                    result += f" IP de origem informado pelo servidor: {address}."
+        return result
     if "couldn't find table:" in message.lower():
         return "Tabela não encontrada. Confira o nome e as maiúsculas e minúsculas."
     if re.search(r"(?i)unknown (?:option|variable)", message):
