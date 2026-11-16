@@ -11,6 +11,7 @@ databases:
     schedule: '15 * * * *' # A cada hora, no minuto 15.
     grace_minutes: 40
     keep: 10
+    encrypt: true # Opcional. Use false para gerar .sql.gz sem criptografia.
     max_storage_mb: 500 # Opcional. Omita para limitar apenas pela quantidade.
     export_procedures: true # Opcional. O padrão é true.
     export_functions: true # Independente de export_procedures.
