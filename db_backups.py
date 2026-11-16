@@ -322,6 +322,18 @@ def dump_error(stderr, returncode):
     return f"O cliente de dump encerrou com código {returncode}."
 
 
+def dump_tls_flags(engine, credentials):
+    host = credentials.get("host")
+    if host is None or host in ("localhost", "127.0.0.1", "::1"):
+        return []
+    if engine == "mysql":
+        mode = "VERIFY_IDENTITY" if credentials.get("ssl-ca") else "REQUIRED"
+        return [f"--ssl-mode={mode}"]
+    if not credentials.get("ssl-ca"):
+        raise BackupError("Configure ssl-ca para a conexão MariaDB remota.")
+    return ["--ssl-verify-server-cert"]
+
+
 def make_archive(db, directory, output):
     try:
         credentials = json.loads(os.environ[db["credentials_env"]])
@@ -333,6 +345,7 @@ def make_archive(db, directory, output):
             raise ValueError
     except (ValueError, TypeError, AttributeError, KeyError):
         raise BackupError("Credenciais do banco ausentes ou inválidas.") from None
+    tls_flags = dump_tls_flags(db["type"], credentials)
     options = directory / "client.cnf"
     settings = "".join(f"{key}={option_value(value)}\n" for key, value in credentials.items())
     options.write_text("[client]\n" + settings)
@@ -341,14 +354,7 @@ def make_archive(db, directory, output):
     flags = ["--single-transaction", "--quick", "--hex-blob"]
     if db["type"] == "mysql":
         flags += ["--no-tablespaces", "--set-gtid-purged=OFF"]
-        if "host" in credentials and credentials["host"] not in {"localhost", "127.0.0.1", "::1"}:
-            if "ssl-ca" not in credentials:
-                raise BackupError("Configure ssl-ca para a conexão MySQL remota.")
-            flags.append("--ssl-mode=VERIFY_IDENTITY")
-    elif "host" in credentials and credentials["host"] not in {"localhost", "127.0.0.1", "::1"}:
-        if "ssl-ca" not in credentials:
-            raise BackupError("Configure ssl-ca para a conexão MariaDB remota.")
-        flags.append("--ssl-verify-server-cert")
+    flags += tls_flags
     recipient = os.environ["AGE_RECIPIENT"].strip()
     if not re.fullmatch(r"age1[0-9a-z]+", recipient):
         raise BackupError("AGE_RECIPIENT deve conter uma chave pública age.")

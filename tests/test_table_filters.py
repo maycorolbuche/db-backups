@@ -1,6 +1,6 @@
 import unittest
 
-from db_backups import BackupError, dump_error, dump_sections, load_config, validate_table_filters
+from db_backups import BackupError, dump_error, dump_sections, dump_tls_flags, load_config, validate_table_filters
 
 
 class TableFiltersTests(unittest.TestCase):
@@ -71,3 +71,25 @@ class DumpErrorTests(unittest.TestCase):
                 result = dump_error(stderr, 2)
                 self.assertIn(f"IP de origem informado pelo servidor: {address}.", result)
                 self.assertNotIn("private-user", result)
+
+
+class DumpTlsTests(unittest.TestCase):
+    def test_mysql_requires_tls_when_ca_is_omitted(self):
+        self.assertEqual(dump_tls_flags("mysql", {"host": "db.example.com"}), ["--ssl-mode=REQUIRED"])
+
+    def test_mysql_verifies_identity_when_ca_is_configured(self):
+        self.assertEqual(
+            dump_tls_flags("mysql", {"host": "db.example.com", "ssl-ca": "mysql-ca.pem"}),
+            ["--ssl-mode=VERIFY_IDENTITY"],
+        )
+
+    def test_local_mysql_keeps_native_defaults(self):
+        self.assertEqual(dump_tls_flags("mysql", {"host": "localhost"}), [])
+
+    def test_mariadb_keeps_certificate_verification(self):
+        with self.assertRaisesRegex(BackupError, "Configure ssl-ca"):
+            dump_tls_flags("mariadb", {"host": "db.example.com"})
+        self.assertEqual(
+            dump_tls_flags("mariadb", {"host": "db.example.com", "ssl-ca": "mysql-ca.pem"}),
+            ["--ssl-verify-server-cert"],
+        )
