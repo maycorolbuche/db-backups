@@ -9,7 +9,7 @@ import re
 import subprocess
 import tempfile
 import time
-from contextlib import closing
+from contextlib import ExitStack, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -26,7 +26,7 @@ from croniter import croniter
 
 
 STAMP = "%Y%m%dT%H%M%S%fZ"
-OBJECT_NAME = re.compile(r"(\d{8}T\d{12}Z)_(manual|\d{8}T\d{12}Z)_[0-9a-f]{32}\.sql\.gz\.age")
+OBJECT_NAME = re.compile(r"(\d{8}T\d{12}Z)_(manual|\d{8}T\d{12}Z)_[0-9a-f]{32}\.sql\.gz(?:\.age)?")
 
 
 class BackupError(Exception):
@@ -73,7 +73,7 @@ def load_config(path, *, validate_filters=True):
 
 
 def validate_table_filters(db_id, db):
-    for field in ("export_procedures", "export_functions", "export_views"):
+    for field in ("export_procedures", "export_functions", "export_views", "encrypt"):
         if type(db.get(field, True)) is not bool:
             raise BackupError(f"{db_id}: {field} deve ser true ou false.")
     for option in ("ignore_data", "ignore_table"):
@@ -427,9 +427,11 @@ def make_archive(db, directory, output):
     if db["type"] == "mysql":
         flags += ["--no-tablespaces", "--set-gtid-purged=OFF"]
     flags += tls_flags
-    recipient = os.environ["AGE_RECIPIENT"].strip()
-    if not re.fullmatch(r"age1[0-9a-z]+", recipient):
-        raise BackupError("AGE_RECIPIENT deve conter uma chave pública age.")
+    recipient = None
+    if db.get("encrypt", True):
+        recipient = os.getenv("AGE_RECIPIENT", "").strip()
+        if not re.fullmatch(r"age1[0-9a-z]+", recipient):
+            raise BackupError("AGE_RECIPIENT deve conter uma chave pública age.")
     command = [client, f"--defaults-file={options}", *flags]
     deadline = time.monotonic() + 45 * 60
 
@@ -457,33 +459,37 @@ def make_archive(db, directory, output):
             kind = "PROCEDURE" if export_procedures else "FUNCTION"
             routine_sql = selected_routines(metadata_command, database, kind, deadline)
 
-    with subprocess.Popen(["gzip", "-c"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                          stderr=subprocess.DEVNULL) as compressor:
+    with ExitStack() as streams:
+        destination = subprocess.PIPE if recipient else streams.enter_context(output.open("xb"))
+        compressor = streams.enter_context(subprocess.Popen(
+            ["gzip", "-c"], stdin=subprocess.PIPE, stdout=destination, stderr=subprocess.DEVNULL
+        ))
+        processes = [("Compactação", compressor)]
         try:
-            with subprocess.Popen(["age", "-r", recipient, "-o", str(output)],
-                                  stdin=compressor.stdout, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL) as encryptor:
+            if recipient:
+                encryptor = streams.enter_context(subprocess.Popen(
+                    ["age", "-r", recipient, "-o", str(output)],
+                    stdin=compressor.stdout, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                ))
+                processes.append(("Criptografia", encryptor))
                 compressor.stdout.close()
-                try:
-                    if routine_sql:
-                        compressor.stdin.write(routine_sql)
-                        compressor.stdin.flush()
-                    for label, dump in dump_sections(db, database, command, excluded_views):
-                        result = subprocess.run(dump, stdout=compressor.stdin, stderr=subprocess.PIPE,
-                                                timeout=max(0, deadline - time.monotonic()))
-                        if result.returncode:
-                            raise BackupError(f"{label}: {dump_error(result.stderr, result.returncode)}")
-                    compressor.stdin.close()
-                    for label, process in (("Criptografia", encryptor), ("Compactação", compressor)):
-                        code = process.wait(timeout=max(0, deadline - time.monotonic()))
-                        if code:
-                            raise BackupError(f"{label} encerrou com código {code}.")
-                finally:
-                    if encryptor.poll() is None:
-                        encryptor.kill()
+            if routine_sql:
+                compressor.stdin.write(routine_sql)
+                compressor.stdin.flush()
+            for label, dump in dump_sections(db, database, command, excluded_views):
+                result = subprocess.run(dump, stdout=compressor.stdin, stderr=subprocess.PIPE,
+                                        timeout=max(0, deadline - time.monotonic()))
+                if result.returncode:
+                    raise BackupError(f"{label}: {dump_error(result.stderr, result.returncode)}")
+            compressor.stdin.close()
+            for label, process in reversed(processes):
+                code = process.wait(timeout=max(0, deadline - time.monotonic()))
+                if code:
+                    raise BackupError(f"{label} encerrou com código {code}.")
         finally:
-            if compressor.poll() is None:
-                compressor.kill()
+            for _, process in reversed(processes):
+                if process.poll() is None:
+                    process.kill()
 
 
 def slot_of(obj):
@@ -503,7 +509,8 @@ def run_backup(store, db_id, db, zone, slot):
     channel = f"backup-{db_id}"
     kind = "manual" if slot == "manual" else "agendada"
     context = f"{name}\nExecução {kind} em {display_stamp(stamp(start), zone)}"
-    key = f"backups/{db_id}/{stamp(start)}_{slot}_{uuid4().hex}.sql.gz.age"
+    suffix = ".sql.gz.age" if db.get("encrypt", True) else ".sql.gz"
+    key = f"backups/{db_id}/{stamp(start)}_{slot}_{uuid4().hex}{suffix}"
     phase = "consulta ao armazenamento"
     last = None
     try:
@@ -526,8 +533,8 @@ def run_backup(store, db_id, db, zone, slot):
                 return True
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
-            archive = directory / "backup.sql.gz.age"
-            phase = "exportação, compactação e criptografia"
+            archive = directory / f"backup{suffix}"
+            phase = "exportação, compactação e criptografia" if db.get("encrypt", True) else "exportação e compactação"
             validate_table_filters(db_id, db)
             make_archive(db, directory, archive)
             size = archive.stat().st_size
