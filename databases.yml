@@ -6,7 +6,7 @@ databases:
     encrypt: false
     executor: actions
     credentials_env: DB_CREDENTIALS_MX_SYS_ADMIN
-    schedule: "*/10 * * * *"
+    schedule: "0 1 * * *"
     grace_minutes: 40
     keep: 3
     max_storage_mb: 500
