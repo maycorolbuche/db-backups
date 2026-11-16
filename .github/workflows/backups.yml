@@ -28,7 +28,7 @@ jobs:
       AGE_RECIPIENT: ${{ vars.AGE_RECIPIENT }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      TELEGRAM_MESSAGE_THREAD_ID: ${{ vars.TELEGRAM_MESSAGE_THREAD_ID }}
+      TELEGRAM_MESSAGE_THREAD_ID: ${{ secrets.TELEGRAM_MESSAGE_THREAD_ID }}
       DB_CREDENTIALS: ${{ secrets.DB_CREDENTIALS }}
     steps:
       - uses: actions/checkout@v4
