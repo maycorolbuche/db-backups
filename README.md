@@ -1,6 +1,6 @@
 # db-backups
 
-Backup lógico de MySQL e MariaDB por banco, com arquivos compactados e criptografados em um bucket privado do Cloudflare R2. O GitHub Actions executa os bancos acessíveis a partir do runner e monitora também os que rodam pelo cron do cPanel.
+Backup lógico de MySQL e MariaDB por banco, com arquivos compactados e criptografados em um bucket privado do Cloudflare R2. O Cloudflare Cron dispara o workflow do GitHub Actions, que executa os bancos acessíveis a partir do runner e monitora também os que rodam pelo cron do cPanel.
 
 ## Configuração inicial
 
@@ -54,11 +54,27 @@ databases:
     keep: 12
 ```
 
-- `schedule` usa cron de cinco campos no fuso definido. O Actions consulta os bancos a cada dez minutos, sujeito à fila do GitHub. Cada execução considera a janela mais recente vencida. Uma interrupção longa gera um backup atual quando o executor voltar, pois o dump não consegue reconstruir estados passados.
+- `schedule` usa cron de cinco campos no fuso definido. O Cloudflare Cron dispara o Actions a cada dez minutos e o workflow consulta quais bancos estão no horário de backup. O início do job depende da fila do GitHub. Cada execução considera a janela mais recente vencida. Uma interrupção longa gera um backup atual quando o executor voltar, pois o dump não consegue reconstruir estados passados.
 - `executor` vincula cada banco a um único executor. Use um nome diferente para cada servidor cPanel. No Actions, os jobs de backup compartilham o mesmo grupo de concorrência. No cPanel, mantenha o mesmo `BACKUP_LOCK_DIR` para as execuções manuais e automáticas do servidor.
 - `keep` define a quantidade máxima. `max_storage_mb` é opcional e usa MB decimal. A cota conta os arquivos de backup criptografados daquele banco. O uso pode subir temporariamente durante o upload e a verificação. Se o backup sozinho exceder a cota, ele é rejeitado antes do upload. Se couber sozinho, os arquivos mais antigos são removidos até satisfazer os dois limites.
 - Use um prefixo gravável e sem bloqueio de exclusão para `backups/`. Se uma exclusão falhar, a rotina tenta desfazer o novo upload e alerta. Uma trava que impeça a exclusão da cópia recém-enviada pode deixar o uso acima da cota até a regularização. Para retenção imutável, use uma segunda cópia com credenciais independentes.
 - Em **Actions → Backup de bancos → Run workflow**, informe o identificador para backup manual de um banco do Actions. No cPanel, acrescente `--database identificador` ao comando do executor. Um backup manual não muda a agenda e conta para a retenção do banco.
+
+## Agendamento no Cloudflare
+
+Após o merge na branch `main`, crie um token fine-grained no GitHub. Em **Repository access**, selecione somente `maycorolbuche/db-backups`. Em **Repository permissions**, conceda **Actions → Read and write**, suficiente para disparar o workflow. Guarde esse token como secret do Worker.
+
+A partir da raiz do repositório, autenticado no Wrangler:
+
+```bash
+npx wrangler deploy --config cloudflare/wrangler.toml
+npx wrangler secret put GITHUB_DISPATCH_TOKEN --config cloudflare/wrangler.toml
+npx wrangler tail --config cloudflare/wrangler.toml
+```
+
+O primeiro comando publica o Worker `db-backups-cron` e configura o Cron Trigger. O Worker não tem URL pública e usa a API do GitHub para disparar `backups.yml` na `main`. Confirme a mensagem de disparo nos logs e abra **Actions → Backup de bancos** para verificar a execução. A confirmação no Cloudflare indica que o GitHub aceitou o disparo. O resultado do backup é registrado no Actions e no Telegram.
+
+O cron do Worker roda em UTC. O horário de cada banco continua sendo calculado com o fuso do `databases.yml`. Para pausar o agendamento, configure `crons = []` no Wrangler e publique novamente. Os disparos manuais continuam disponíveis no Actions.
 
 ## Execução pelo cPanel
 
@@ -99,4 +115,5 @@ Para MariaDB, use o cliente `mariadb`. Confira tabelas, dados e objetos de esque
 python -m pip install -r requirements.txt
 python db_backups.py validate
 python -m unittest discover -s tests -v
+node --test tests/test_scheduler.mjs
 ```
