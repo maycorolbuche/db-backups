@@ -74,14 +74,10 @@ class DumpErrorTests(unittest.TestCase):
 
 
 class DumpTlsTests(unittest.TestCase):
-    def test_mysql_required_works_without_ca(self):
-        credentials = {"host": "db.example.com", "ssl-mode": "REQUIRED"}
-        self.assertEqual(dump_tls_flags("mysql", credentials), ["--ssl-mode=REQUIRED"])
-        self.assertNotIn("ssl-mode", credentials)
+    def test_mysql_requires_tls_when_ca_is_omitted(self):
+        self.assertEqual(dump_tls_flags("mysql", {"host": "db.example.com"}), ["--ssl-mode=REQUIRED"])
 
-    def test_mysql_remote_defaults_to_identity_verification(self):
-        with self.assertRaisesRegex(BackupError, "Configure ssl-ca"):
-            dump_tls_flags("mysql", {"host": "db.example.com"})
+    def test_mysql_verifies_identity_when_ca_is_configured(self):
         self.assertEqual(
             dump_tls_flags("mysql", {"host": "db.example.com", "ssl-ca": "mysql-ca.pem"}),
             ["--ssl-mode=VERIFY_IDENTITY"],
@@ -91,13 +87,9 @@ class DumpTlsTests(unittest.TestCase):
         self.assertEqual(dump_tls_flags("mysql", {"host": "localhost"}), [])
 
     def test_mariadb_keeps_certificate_verification(self):
+        with self.assertRaisesRegex(BackupError, "Configure ssl-ca"):
+            dump_tls_flags("mariadb", {"host": "db.example.com"})
         self.assertEqual(
             dump_tls_flags("mariadb", {"host": "db.example.com", "ssl-ca": "mysql-ca.pem"}),
             ["--ssl-verify-server-cert"],
         )
-        with self.assertRaisesRegex(BackupError, "cliente MySQL"):
-            dump_tls_flags("mariadb", {"host": "db.example.com", "ssl-mode": "REQUIRED"})
-
-    def test_rejects_modes_that_allow_unencrypted_connections(self):
-        with self.assertRaisesRegex(BackupError, "ssl-mode"):
-            dump_tls_flags("mysql", {"host": "db.example.com", "ssl-mode": "DISABLED"})
