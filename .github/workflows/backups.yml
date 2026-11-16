@@ -43,6 +43,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y age mysql-client
+          ln -s mariadb-dump "$GITHUB_WORKSPACE/scripts/actions/mariadb"
           echo "$GITHUB_WORKSPACE/scripts/actions" >> "$GITHUB_PATH"
       - name: Gerar backups
         env:
