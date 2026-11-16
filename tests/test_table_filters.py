@@ -93,3 +93,18 @@ class DumpTlsTests(unittest.TestCase):
             dump_tls_flags("mariadb", {"host": "db.example.com", "ssl-ca": "mysql-ca.pem"}),
             ["--ssl-verify-server-cert"],
         )
+
+
+class DumpStructureErrorTests(unittest.TestCase):
+    def test_uses_server_error_from_command_failure(self):
+        stderr = b"mysqldump: Couldn't execute 'SHOW CREATE TABLE hidden': SELECT denied for private-user (1142)\n"
+        self.assertEqual(
+            dump_error(stderr, 2),
+            "Erro MySQL/MariaDB 1142: usuário sem permissão para a operação na tabela.",
+        )
+
+    def test_identifies_missing_routine_privileges_without_copying_names(self):
+        stderr = b"mysqldump: private-user has insufficient privileges to SHOW CREATE FUNCTION hidden"
+        result = dump_error(stderr, 2)
+        self.assertIn("sem permissão para exportar a definição de uma rotina", result)
+        self.assertNotIn("private-user", result)

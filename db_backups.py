@@ -282,6 +282,10 @@ def dump_sections(db, database, command):
 def dump_error(stderr, returncode):
     message = stderr.decode("utf-8", errors="replace")
     match = re.search(r"(?i)(?:got error|error):\s*(\d{4})\b", message)
+    if not match:
+        match = re.search(
+            r"(?im)^[^\n]*couldn['’]t execute [^\n]*\((\d{4})\)[ \t]*$", message
+        )
     if match:
         code = match.group(1)
         reasons = {
@@ -315,6 +319,8 @@ def dump_error(stderr, returncode):
                 else:
                     result += f" IP de origem informado pelo servidor: {address}."
         return result
+    if re.search(r"(?i)insufficient privileges to show create (?:function|procedure)", message):
+        return "Usuário sem permissão para exportar a definição de uma rotina (SHOW CREATE FUNCTION ou PROCEDURE)."
     if "couldn't find table:" in message.lower():
         return "Tabela não encontrada. Confira o nome e as maiúsculas e minúsculas."
     if re.search(r"(?i)unknown (?:option|variable)", message):
