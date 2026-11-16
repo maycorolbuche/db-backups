@@ -324,24 +324,14 @@ def dump_error(stderr, returncode):
 
 def dump_tls_flags(engine, credentials):
     host = credentials.get("host")
-    remote = host is not None and host not in ("localhost", "127.0.0.1", "::1")
-    mode = credentials.pop("ssl-mode", None)
+    if host is None or host in ("localhost", "127.0.0.1", "::1"):
+        return []
     if engine == "mysql":
-        if mode is not None and mode not in ("REQUIRED", "VERIFY_IDENTITY"):
-            raise BackupError("ssl-mode deve ser REQUIRED ou VERIFY_IDENTITY.")
-        if mode is None and not remote:
-            return []
-        mode = mode or "VERIFY_IDENTITY"
-        if mode == "VERIFY_IDENTITY" and not credentials.get("ssl-ca"):
-            raise BackupError("Configure ssl-ca para a conexão MySQL com VERIFY_IDENTITY.")
+        mode = "VERIFY_IDENTITY" if credentials.get("ssl-ca") else "REQUIRED"
         return [f"--ssl-mode={mode}"]
-    if mode is not None:
-        raise BackupError("ssl-mode é uma opção do cliente MySQL.")
-    if remote:
-        if not credentials.get("ssl-ca"):
-            raise BackupError("Configure ssl-ca para a conexão MariaDB remota.")
-        return ["--ssl-verify-server-cert"]
-    return []
+    if not credentials.get("ssl-ca"):
+        raise BackupError("Configure ssl-ca para a conexão MariaDB remota.")
+    return ["--ssl-verify-server-cert"]
 
 
 def make_archive(db, directory, output):
@@ -350,7 +340,7 @@ def make_archive(db, directory, output):
         database = credentials.pop("database")
         if not isinstance(database, str) or not database or database.startswith("-") or "\0" in database:
             raise ValueError
-        allowed = {"host", "port", "user", "password", "socket", "ssl-ca", "ssl-mode"}
+        allowed = {"host", "port", "user", "password", "socket", "ssl-ca"}
         if set(credentials) - allowed or not {"user", "password"} <= credentials.keys():
             raise ValueError
     except (ValueError, TypeError, AttributeError, KeyError):
