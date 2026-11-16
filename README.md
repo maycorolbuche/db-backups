@@ -38,6 +38,7 @@ Use [databases.example.yml](databases.example.yml) como modelo. O cadastro ativo
 - `executor` vincula cada banco a um único executor. Use um nome diferente para cada servidor cPanel. No Actions, os jobs de backup compartilham o mesmo grupo de concorrência. No cPanel, mantenha o mesmo `BACKUP_LOCK_DIR` para as execuções manuais e automáticas do servidor.
 - `keep` define a quantidade máxima. `max_storage_mb` é opcional e usa MB decimal. A cota conta os arquivos de backup criptografados daquele banco. O uso pode subir temporariamente durante o upload e a verificação. Se o backup sozinho exceder a cota, ele é rejeitado antes do upload. Se couber sozinho, os arquivos mais antigos são removidos até satisfazer os dois limites.
 - Use um prefixo gravável e sem bloqueio de exclusão para `backups/`. Se uma exclusão falhar, a rotina tenta desfazer o novo upload e alerta. Uma trava que impeça a exclusão da cópia recém-enviada pode deixar o uso acima da cota até a regularização. Para retenção imutável, use uma segunda cópia com credenciais independentes.
+- `export_procedures`, `export_functions` e `export_views` aceitam `true` ou `false` por banco. O padrão é `true`. Configure cada opção separadamente. Se uma view, um gatilho ou um evento depender de uma rotina excluída, confira essa dependência na restauração.
 - `ignore_data` e `ignore_table` são listas opcionais por banco. A primeira preserva a estrutura (incluindo índices, constraints e gatilhos) e omite as linhas originais. A segunda exclui a tabela inteira. Use nomes exatos, sem o prefixo do banco. Tabelas repetidas, sobreposição entre listas e tabelas que não puderem ser validadas causam falha do backup. As listas vazias equivalem ao backup integral.
 - Antes de excluir uma tabela ou seus dados, confira as dependências de chaves estrangeiras, views, rotinas e gatilhos. O dump preserva as definições dependentes e elas podem exigir a tabela ou os dados excluídos.
 - Em **Actions → Backup de bancos → Run workflow**, informe o identificador para backup manual de um banco do Actions. No cPanel, acrescente `--database identificador` ao comando do executor. Um backup manual não muda a agenda e conta para a retenção do banco.
@@ -60,7 +61,7 @@ O cron do Worker roda em UTC. O horário de cada banco continua sendo calculado 
 
 ## Execução pelo cPanel
 
-Instale ou disponibilize na conta Python 3.12, `gzip`, `age` e o cliente compatível (`mysqldump` ou `mariadb-dump`). O projeto e os arquivos de configuração devem ficar fora de `public_html`. Em hospedagens sem SSH, é possível fazer o upload pelo Gerenciador de Arquivos e usar Cron Jobs para executar os comandos após conferir os executáveis disponíveis no plano.
+Instale ou disponibilize na conta Python 3.12, `gzip`, `age` e o cliente compatível (`mysqldump` ou `mariadb-dump`). Para omitir views ou selecionar apenas um tipo de rotina, disponibilize também o cliente SQL correspondente (`mysql` ou `mariadb`). O projeto e os arquivos de configuração devem ficar fora de `public_html`. Em hospedagens sem SSH, é possível fazer o upload pelo Gerenciador de Arquivos e usar Cron Jobs para executar os comandos após conferir os executáveis disponíveis no plano.
 
 Crie o ambiente Python e instale as dependências uma vez:
 
