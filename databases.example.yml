@@ -1,0 +1,30 @@
+# Copie as entradas de exemplo para databases.yml e ajuste os valores.
+# As credenciais reais ficam nos secrets ou no arquivo privado do executor.
+timezone: America/Sao_Paulo
+
+databases:
+  home-care:
+    name: Home Care
+    type: mysql
+    executor: actions
+    credentials_env: DB_CREDENTIALS
+    schedule: '15 * * * *' # A cada hora, no minuto 15.
+    grace_minutes: 40
+    keep: 10
+    max_storage_mb: 500 # Opcional. Omita para limitar apenas pela quantidade.
+    ignore_data: # Preserva a estrutura e omite os dados.
+      - activity_log
+      - audit_logs
+    ignore_table: # Omite a estrutura e os dados.
+      - cache
+      - cache_locks
+
+  catalogo:
+    name: Catálogo
+    type: mariadb
+    executor: cpanel-principal
+    credentials_env: CATALOGO_DB_CREDENTIALS
+    schedule: '15 5 1 * *' # Dia 1 de cada mês às 05h15.
+    grace_minutes: 120
+    keep: 12
+    # Sem listas de exclusão, todas as tabelas entram com estrutura e dados.
