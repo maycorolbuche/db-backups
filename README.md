@@ -17,7 +17,7 @@ Backup lógico de MySQL e MariaDB por banco, com arquivos compactados e criptogr
 | Secret | `R2_SECRET_ACCESS_KEY` | Segredo R2 |
 | Secret | `TELEGRAM_BOT_TOKEN` | Token do bot |
 | Secret | `TELEGRAM_CHAT_ID` | ID do grupo |
-| Variable opcional | `TELEGRAM_MESSAGE_THREAD_ID` | ID do tópico. Vazio envia para o grupo. |
+| Secret opcional | `TELEGRAM_MESSAGE_THREAD_ID` | ID do tópico. Vazio envia para o grupo. |
 | Secret | `DB_CREDENTIALS` | Credenciais do banco de exemplo. Para outros bancos, adicione um Secret por banco e mapeie no bloco `env` de `.github/workflows/backups.yml`. |
 
 O JSON de conexão tem o formato abaixo. Use uma conta dedicada com os privilégios necessários para ler dados e exportar views, rotinas, eventos e gatilhos. Em conexões remotas, configure `ssl-ca` com o caminho da CA verificadora. No Actions, o arquivo público da CA pode ser distribuído no repositório ou use o bundle de CA do cliente quando adequado. Os nomes e credenciais reais ficam na variável de ambiente indicada em `credentials_env`.
