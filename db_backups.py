@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from uuid import uuid4
+from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
 import boto3
@@ -72,6 +73,9 @@ def load_config(path, *, validate_filters=True):
 
 
 def validate_table_filters(db_id, db):
+    for field in ("export_procedures", "export_functions", "export_views"):
+        if type(db.get(field, True)) is not bool:
+            raise BackupError(f"{db_id}: {field} deve ser true ou false.")
     for option in ("ignore_data", "ignore_table"):
         tables = db.get(option, [])
         if not isinstance(tables, list) or any(
@@ -254,22 +258,24 @@ def option_value(value):
     return f'"{escaped}"'
 
 
-def dump_sections(db, database, command):
-    ignore_table = [f"--ignore-table={database}.{table}" for table in db.get("ignore_table", [])]
+def dump_sections(db, database, command, excluded_views=()):
+    routines = ["--routines"] if db.get("export_procedures", True) and db.get("export_functions", True) else []
+    ignored_objects = [*db.get("ignore_table", []), *excluded_views]
+    ignore_table = [f"--ignore-table={database}.{table}" for table in ignored_objects]
     ignore_data = db.get("ignore_data", [])
     base = [*command, *ignore_table]
     target = ["--databases", database]
     if not ignore_data:
-        return [("Exportação do banco", [*base, "--routines", "--events", "--triggers", *target])]
+        return [("Exportação do banco", [*base, *routines, "--events", "--triggers", *target])]
 
     if db["type"] == "mariadb":
         data_filters = [f"--ignore-table-data={database}.{table}" for table in ignore_data]
         sections = [("Exportação da estrutura e dos dados",
-                     [*base, *data_filters, "--skip-triggers", "--routines", *target])]
+                     [*base, *data_filters, "--skip-triggers", *routines, *target])]
     else:
         data_filters = [f"--ignore-table={database}.{table}" for table in ignore_data]
         sections = [
-            ("Exportação da estrutura", [*base, "--no-data", "--skip-triggers", "--routines", *target]),
+            ("Exportação da estrutura", [*base, "--no-data", "--skip-triggers", *routines, *target]),
             ("Exportação dos dados", [*base, *data_filters, "--no-create-info",
                                      "--no-create-db", "--skip-triggers", *target]),
         ]
@@ -340,6 +346,66 @@ def dump_tls_flags(engine, credentials):
     return ["--ssl-verify-server-cert"]
 
 
+def quote_identifier(name):
+    return "`" + name.replace("`", "``") + "`"
+
+
+def query_schema(command, statement, deadline):
+    result = subprocess.run([*command, f"--execute={statement}"], capture_output=True,
+                            timeout=max(0, deadline - time.monotonic()))
+    if result.returncode:
+        raise BackupError(dump_error(result.stderr, result.returncode))
+    try:
+        root = ElementTree.fromstring(result.stdout)
+    except ElementTree.ParseError:
+        raise BackupError("Não foi possível ler os metadados do banco.") from None
+    return [{field.attrib["name"]: field.text for field in row.findall("field")}
+            for row in root.findall("row")]
+
+
+def selected_routines(command, database, kind, deadline):
+    rows = query_schema(command, "SELECT ROUTINE_NAME FROM information_schema.ROUTINES "
+                        f"WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_TYPE = '{kind}' "
+                        "ORDER BY ROUTINE_NAME", deadline)
+    if not rows:
+        return b""
+
+    database_name = quote_identifier(database)
+    schema = query_schema(command, f"SHOW CREATE DATABASE {database_name}", deadline)
+    create_database = schema[0]["Create Database"].replace("CREATE DATABASE ", "CREATE DATABASE IF NOT EXISTS ", 1)
+    lines = [
+        create_database + ";",
+        f"USE {database_name};",
+        "SET @backup_sql_mode = @@SESSION.sql_mode, @backup_client_charset = @@SESSION.character_set_client,"
+        " @backup_connection_collation = @@SESSION.collation_connection;",
+        "SET SESSION character_set_client = utf8mb4;",
+    ]
+    for row in rows:
+        name = quote_identifier(row["ROUTINE_NAME"])
+        routine = query_schema(command, f"SHOW CREATE {kind} {name}", deadline)
+        definition = routine[0].get(f"Create {kind.title()}") if routine else None
+        if not definition:
+            raise BackupError(f"Usuário sem permissão para exportar a definição de {kind}.")
+        mode = routine[0].get("sql_mode") or ""
+        collation = routine[0].get("collation_connection") or ""
+        if not re.fullmatch(r"[A-Z0-9_,]*", mode) or not re.fullmatch(r"[a-zA-Z0-9_]+", collation):
+            raise BackupError(f"Metadados inválidos na definição de {kind}.")
+        delimiter = ";;" + uuid4().hex
+        while delimiter in definition:
+            delimiter = ";;" + uuid4().hex
+        lines.extend([
+            f"SET SESSION sql_mode = '{mode}';",
+            f"SET SESSION collation_connection = '{collation}';",
+            f"DROP {kind} IF EXISTS {name};",
+            f"DELIMITER {delimiter}",
+            definition + "\n" + delimiter,
+            "DELIMITER ;",
+        ])
+    lines.append("SET SESSION sql_mode = @backup_sql_mode, character_set_client = @backup_client_charset,"
+                 " collation_connection = @backup_connection_collation;")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
 def make_archive(db, directory, output):
     try:
         credentials = json.loads(os.environ[db["credentials_env"]])
@@ -375,6 +441,22 @@ def make_archive(db, directory, output):
             raise BackupError(f"Não foi possível validar a tabela {table}. "
                               f"{dump_error(probe.stderr, probe.returncode)}")
 
+    export_procedures = db.get("export_procedures", True)
+    export_functions = db.get("export_functions", True)
+    excluded_views = []
+    routine_sql = b""
+    if not db.get("export_views", True) or export_procedures != export_functions:
+        sql_client = "mysql" if db["type"] == "mysql" else "mariadb"
+        metadata_command = [sql_client, f"--defaults-file={options}", *tls_flags, "--xml",
+                            "--default-character-set=utf8mb4", f"--database={database}"]
+        if not db.get("export_views", True):
+            views = query_schema(metadata_command, "SELECT TABLE_NAME FROM information_schema.TABLES "
+                                 "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'VIEW'", deadline)
+            excluded_views = [row["TABLE_NAME"] for row in views]
+        if export_procedures != export_functions:
+            kind = "PROCEDURE" if export_procedures else "FUNCTION"
+            routine_sql = selected_routines(metadata_command, database, kind, deadline)
+
     with subprocess.Popen(["gzip", "-c"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL) as compressor:
         try:
@@ -383,7 +465,10 @@ def make_archive(db, directory, output):
                                   stderr=subprocess.DEVNULL) as encryptor:
                 compressor.stdout.close()
                 try:
-                    for label, dump in dump_sections(db, database, command):
+                    if routine_sql:
+                        compressor.stdin.write(routine_sql)
+                        compressor.stdin.flush()
+                    for label, dump in dump_sections(db, database, command, excluded_views):
                         result = subprocess.run(dump, stdout=compressor.stdin, stderr=subprocess.PIPE,
                                                 timeout=max(0, deadline - time.monotonic()))
                         if result.returncode:
