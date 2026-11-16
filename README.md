@@ -20,13 +20,13 @@ Backup lógico de MySQL e MariaDB por banco, com arquivos compactados e criptogr
 | Secret opcional | `TELEGRAM_MESSAGE_THREAD_ID` | ID do tópico. Vazio envia para o grupo. |
 | Secret | `DB_CREDENTIALS` | Credenciais do banco de exemplo. Para outros bancos, adicione um Secret por banco e mapeie no bloco `env` de `.github/workflows/backups.yml`. |
 
-O JSON de conexão tem o formato abaixo. Use uma conta dedicada com os privilégios necessários para ler dados e exportar views, rotinas, eventos e gatilhos. Por padrão, em conexões remotas, configure `ssl-ca` com o caminho da CA verificadora. No Actions, o arquivo público da CA pode ser distribuído no repositório ou use o bundle de CA do cliente quando adequado. Os nomes e credenciais reais ficam na variável de ambiente indicada em `credentials_env`.
+O JSON de conexão tem o formato abaixo. Use uma conta dedicada com os privilégios necessários para ler dados e exportar views, rotinas, eventos e gatilhos. Para verificar o certificado de uma conexão remota, configure `ssl-ca` com o caminho da CA. No Actions, o arquivo público da CA pode ser distribuído no repositório ou use o bundle de CA do cliente quando adequado. Os nomes e credenciais reais ficam na variável de ambiente indicada em `credentials_env`.
 
 ```json
 {"host":"db.exemplo.com","port":3306,"database":"app","user":"backup","password":"substituir","ssl-ca":"certs/mysql-ca.pem"}
 ```
 
-Para MySQL remoto sem um arquivo de CA, inclua `"ssl-mode": "REQUIRED"` no JSON do Secret e remova `ssl-ca`. Esse modo exige TLS e dispensa a verificação da identidade do servidor. Quando `ssl-mode` é omitido, o MySQL remoto usa `VERIFY_IDENTITY`.
+Para MySQL remoto, omita `ssl-ca` para usar TLS obrigatório (`REQUIRED`) sem verificar a identidade do servidor. Com `ssl-ca` preenchido, o cliente usa `VERIFY_IDENTITY` para verificar a CA e o hostname. Para MariaDB remoto, informe `ssl-ca`.
 
 Para conexão local via socket, omita `ssl-ca` e use `host: localhost` e, se necessário, o campo `socket` no JSON. `type` seleciona o cliente do dump. O snapshot transacional pressupõe tabelas transacionais, como InnoDB. Para tabelas não transacionais ou alterações de esquema concorrentes, defina uma janela adequada e valide a restauração.
 
