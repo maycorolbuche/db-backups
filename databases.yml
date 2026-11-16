@@ -8,7 +8,7 @@ databases:
     credentials_env: DB_CREDENTIALS_MX_SYS_ADMIN
     schedule: "0 1 * * *"
     grace_minutes: 40
-    keep: 3
+    keep: 5
     max_storage_mb: 500
     export_procedures: false
     export_functions: false
@@ -16,3 +16,18 @@ databases:
     ignore_data:
       - ACESSOS
       - LOGS_PAGINA
+  eletronicautomacoes:
+    name: EletronicAutomacoes
+    type: mysql
+    encrypt: false
+    executor: actions
+    credentials_env: DB_CREDENTIALS_ELETRONICAUTOMACOES
+    schedule: "0/10 * * * *"
+    grace_minutes: 40
+    keep: 15
+    max_storage_mb: 500
+    export_procedures: false
+    export_functions: false
+    export_views: false
+    ignore_data:
+      - LOGS
