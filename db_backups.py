@@ -278,6 +278,36 @@ def dump_sections(db, database, command):
     return sections
 
 
+def dump_error(stderr, returncode):
+    message = stderr.decode("utf-8", errors="replace")
+    match = re.search(r"(?i)(?:got error|error):\s*(\d{4})\b", message)
+    if match:
+        code = match.group(1)
+        reasons = {
+            "1044": "usuário sem acesso ao banco",
+            "1045": "autenticação recusada pelo servidor",
+            "1049": "banco de dados não encontrado",
+            "1109": "tabela não encontrada",
+            "1130": "origem da conexão não autorizada pelo servidor",
+            "1142": "usuário sem permissão para a operação na tabela",
+            "1146": "tabela não encontrada",
+            "1227": "usuário sem o privilégio exigido para a operação",
+            "1356": "view inválida ou sem permissão sobre seus objetos",
+            "2002": "não foi possível conectar ao servidor",
+            "2003": "não foi possível conectar ao servidor",
+            "2005": "host do banco não encontrado",
+            "2013": "conexão perdida durante a operação",
+            "2026": "falha de TLS ou na validação do certificado",
+            "2059": "plugin de autenticação indisponível no cliente",
+        }
+        return f"Erro MySQL/MariaDB {code}: {reasons.get(code, 'operação recusada pelo cliente ou servidor')}."
+    if "couldn't find table:" in message.lower():
+        return "Tabela não encontrada. Confira o nome e as maiúsculas e minúsculas."
+    if re.search(r"(?i)unknown (?:option|variable)", message):
+        return "O cliente de dump rejeitou uma opção. Confira a compatibilidade do executável."
+    return f"O cliente de dump encerrou com código {returncode}."
+
+
 def make_archive(db, directory, output):
     try:
         credentials = json.loads(os.environ[db["credentials_env"]])
@@ -313,10 +343,11 @@ def make_archive(db, directory, output):
 
     for table in db.get("ignore_data", []) + db.get("ignore_table", []):
         probe = subprocess.run([*command, "--no-data", "--skip-triggers", database, table],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                timeout=max(0, deadline - time.monotonic()))
         if probe.returncode:
-            raise BackupError(f"Não foi possível validar a tabela {table}. Confira o nome e as permissões.")
+            raise BackupError(f"Não foi possível validar a tabela {table}. "
+                              f"{dump_error(probe.stderr, probe.returncode)}")
 
     with subprocess.Popen(["gzip", "-c"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=subprocess.DEVNULL) as compressor:
@@ -327,10 +358,10 @@ def make_archive(db, directory, output):
                 compressor.stdout.close()
                 try:
                     for label, dump in dump_sections(db, database, command):
-                        result = subprocess.run(dump, stdout=compressor.stdin, stderr=subprocess.DEVNULL,
+                        result = subprocess.run(dump, stdout=compressor.stdin, stderr=subprocess.PIPE,
                                                 timeout=max(0, deadline - time.monotonic()))
                         if result.returncode:
-                            raise BackupError(f"{label} encerrou com código {result.returncode}.")
+                            raise BackupError(f"{label}: {dump_error(result.stderr, result.returncode)}")
                     compressor.stdin.close()
                     for label, process in (("Criptografia", encryptor), ("Compactação", compressor)):
                         code = process.wait(timeout=max(0, deadline - time.monotonic()))
