@@ -9,6 +9,9 @@ databases:
     grace_minutes: 40
     keep: 3
     max_storage_mb: 500
+    export_procedures: false
+    export_functions: false
+    export_views: false
     ignore_data:
       - ACESSOS
       - LOGS_PAGINA
