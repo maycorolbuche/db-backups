@@ -1,6 +1,6 @@
 import unittest
 
-from db_backups import BackupError, dump_sections, load_config, validate_table_filters
+from db_backups import BackupError, dump_error, dump_sections, load_config, validate_table_filters
 
 
 class TableFiltersTests(unittest.TestCase):
@@ -44,3 +44,19 @@ class TableFiltersTests(unittest.TestCase):
         self.assertIn("--ignore-table-data=app.logs", sections[0][1])
         self.assertIn("--ignore-table=app.cache", sections[0][1])
         self.assertNotIn("--ignore-table-data=app.logs", sections[1][1])
+
+
+class DumpErrorTests(unittest.TestCase):
+    def test_reports_cause_without_copying_connection_details(self):
+        cases = [
+            (b"mysqldump: Got error: 1045: Access denied for 'private-user'@'private-host'", "autenticação recusada"),
+            (b"mysqldump: Got error: 2026: SSL connection error", "falha de TLS"),
+            (b"mysqldump: Couldn't find table: \"ACESSOS\"", "Tabela não encontrada"),
+            (b"mysqldump: unknown variable 'private-value'", "rejeitou uma opção"),
+            (b"unexpected private-user private-host private-value", "código 2"),
+        ]
+        for stderr, reason in cases:
+            with self.subTest(reason=reason):
+                result = dump_error(stderr, 2)
+                self.assertIn(reason, result)
+                self.assertNotIn("private-", result)
