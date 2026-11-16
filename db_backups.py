@@ -39,7 +39,7 @@ def stamp(moment):
     return moment.astimezone(timezone.utc).strftime(STAMP)
 
 
-def load_config(path):
+def load_config(path, *, validate_filters=True):
     config = yaml.safe_load(Path(path).read_text())
     zone = ZoneInfo(config.get("timezone", "America/Sao_Paulo"))
     databases = config["databases"]
@@ -65,7 +65,26 @@ def load_config(path):
                 raise BackupError(f"{db_id}: {field} deve ser inteiro positivo.")
         if not isinstance(db.get("name", db_id), str):
             raise BackupError(f"{db_id}: nome inválido.")
+        if validate_filters:
+            validate_table_filters(db_id, db)
     return zone, databases
+
+
+def validate_table_filters(db_id, db):
+    for option in ("ignore_data", "ignore_table"):
+        tables = db.get(option, [])
+        if not isinstance(tables, list) or any(
+            not isinstance(table, str) or not 1 <= len(table) <= 64
+            or table.startswith("-") or table != table.strip()
+            or any(char in "./\\" or ord(char) < 32 for char in table)
+            for table in tables
+        ):
+            raise BackupError(f"{db_id}: {option} deve ser uma lista de nomes de tabelas.")
+        if len(tables) != len(set(tables)):
+            raise BackupError(f"{db_id}: {option} contém tabelas repetidas.")
+    overlap = set(db.get("ignore_data", [])) & set(db.get("ignore_table", []))
+    if overlap:
+        raise BackupError(f"{db_id}: tabelas nas duas listas: {', '.join(sorted(overlap))}.")
 
 
 def due(db, zone, moment):
@@ -234,6 +253,31 @@ def option_value(value):
     return f'"{escaped}"'
 
 
+def dump_sections(db, database, command):
+    ignore_table = [f"--ignore-table={database}.{table}" for table in db.get("ignore_table", [])]
+    ignore_data = db.get("ignore_data", [])
+    base = [*command, *ignore_table]
+    target = ["--databases", database]
+    if not ignore_data:
+        return [("Exportação do banco", [*base, "--routines", "--events", "--triggers", *target])]
+
+    if db["type"] == "mariadb":
+        data_filters = [f"--ignore-table-data={database}.{table}" for table in ignore_data]
+        sections = [("Exportação da estrutura e dos dados",
+                     [*base, *data_filters, "--skip-triggers", "--routines", *target])]
+    else:
+        data_filters = [f"--ignore-table={database}.{table}" for table in ignore_data]
+        sections = [
+            ("Exportação da estrutura", [*base, "--no-data", "--skip-triggers", "--routines", *target]),
+            ("Exportação dos dados", [*base, *data_filters, "--no-create-info",
+                                     "--no-create-db", "--skip-triggers", *target]),
+        ]
+    sections.append(("Exportação dos gatilhos e eventos",
+                     [*base, "--no-data", "--no-create-info", "--no-create-db",
+                      "--triggers", "--events", *target]))
+    return sections
+
+
 def make_archive(db, directory, output):
     try:
         credentials = json.loads(os.environ[db["credentials_env"]])
@@ -250,7 +294,7 @@ def make_archive(db, directory, output):
     options.write_text("[client]\n" + settings)
     options.chmod(0o600)
     client = "mysqldump" if db["type"] == "mysql" else "mariadb-dump"
-    flags = ["--single-transaction", "--quick", "--routines", "--events", "--triggers", "--hex-blob"]
+    flags = ["--single-transaction", "--quick", "--hex-blob"]
     if db["type"] == "mysql":
         flags += ["--no-tablespaces", "--set-gtid-purged=OFF"]
         if "host" in credentials and credentials["host"] not in {"localhost", "127.0.0.1", "::1"}:
@@ -264,34 +308,40 @@ def make_archive(db, directory, output):
     recipient = os.environ["AGE_RECIPIENT"].strip()
     if not re.fullmatch(r"age1[0-9a-z]+", recipient):
         raise BackupError("AGE_RECIPIENT deve conter uma chave pública age.")
-    commands = [
-        [client, f"--defaults-file={options}", *flags, "--databases", database],
-        ["gzip", "-c"],
-        ["age", "-r", recipient, "-o", str(output)],
-    ]
-    processes = []
-    stream = None
-    try:
-        for command in commands:
-            process = subprocess.Popen(command, stdin=stream,
-                                       stdout=subprocess.PIPE if command != commands[-1] else subprocess.DEVNULL,
-                                       stderr=subprocess.DEVNULL)
-            processes.append(process)
-            if stream is not None:
-                stream.close()
-            stream = process.stdout
-        deadline = time.monotonic() + 45 * 60
-        codes = [process.wait(timeout=max(0, deadline - time.monotonic())) for process in reversed(processes)]
-        for label, code in zip(("Criptografia", "Compactação", "Exportação do banco"), codes):
-            if code:
-                raise BackupError(f"{label} encerrou com código {code}.")
-    finally:
-        if stream is not None:
-            stream.close()
-        for process in processes:
-            if process.poll() is None:
-                process.kill()
-            process.wait()
+    command = [client, f"--defaults-file={options}", *flags]
+    deadline = time.monotonic() + 45 * 60
+
+    for table in db.get("ignore_data", []) + db.get("ignore_table", []):
+        probe = subprocess.run([*command, "--no-data", "--skip-triggers", database, table],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=max(0, deadline - time.monotonic()))
+        if probe.returncode:
+            raise BackupError(f"Não foi possível validar a tabela {table}. Confira o nome e as permissões.")
+
+    with subprocess.Popen(["gzip", "-c"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL) as compressor:
+        try:
+            with subprocess.Popen(["age", "-r", recipient, "-o", str(output)],
+                                  stdin=compressor.stdout, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL) as encryptor:
+                compressor.stdout.close()
+                try:
+                    for label, dump in dump_sections(db, database, command):
+                        result = subprocess.run(dump, stdout=compressor.stdin, stderr=subprocess.DEVNULL,
+                                                timeout=max(0, deadline - time.monotonic()))
+                        if result.returncode:
+                            raise BackupError(f"{label} encerrou com código {result.returncode}.")
+                    compressor.stdin.close()
+                    for label, process in (("Criptografia", encryptor), ("Compactação", compressor)):
+                        code = process.wait(timeout=max(0, deadline - time.monotonic()))
+                        if code:
+                            raise BackupError(f"{label} encerrou com código {code}.")
+                finally:
+                    if encryptor.poll() is None:
+                        encryptor.kill()
+        finally:
+            if compressor.poll() is None:
+                compressor.kill()
 
 
 def slot_of(obj):
@@ -336,6 +386,7 @@ def run_backup(store, db_id, db, zone, slot):
             directory = Path(temp)
             archive = directory / "backup.sql.gz.age"
             phase = "exportação, compactação e criptografia"
+            validate_table_filters(db_id, db)
             make_archive(db, directory, archive)
             size = archive.stat().st_size
             phase = "cota de armazenamento"
@@ -430,7 +481,7 @@ def main():
     commands.add_parser("validate")
     args = parser.parse_args()
     try:
-        zone, databases = load_config(args.config)
+        zone, databases = load_config(args.config, validate_filters=args.command == "validate")
         if args.command == "validate":
             return 0
         if args.command == "monitor":

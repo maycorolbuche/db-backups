@@ -30,34 +30,14 @@ Para conexão local via socket, omita `ssl-ca` e use `host: localhost` e, se nec
 
 ## Cadastro de bancos
 
-Adicione entradas a `databases.yml`. O repositório vem com o cadastro vazio.
-
-```yaml
-timezone: America/Sao_Paulo
-databases:
-  home-care:
-    name: Home Care
-    type: mysql
-    executor: actions
-    credentials_env: DB_CREDENTIALS
-    schedule: '15 * * * *'
-    grace_minutes: 40
-    keep: 10
-    max_storage_mb: 500
-  catalogo:
-    name: Catálogo
-    type: mariadb
-    executor: cpanel-principal
-    credentials_env: CATALOGO_DB_CREDENTIALS
-    schedule: '15 5 1 * *'
-    grace_minutes: 120
-    keep: 12
-```
+Use [databases.example.yml](databases.example.yml) como modelo. O cadastro ativo fica em `databases.yml` e começa vazio.
 
 - `schedule` usa cron de cinco campos no fuso definido. O Cloudflare Cron dispara o Actions a cada dez minutos e o workflow consulta quais bancos estão no horário de backup. O início do job depende da fila do GitHub. Cada execução considera a janela mais recente vencida. Uma interrupção longa gera um backup atual quando o executor voltar, pois o dump não consegue reconstruir estados passados.
 - `executor` vincula cada banco a um único executor. Use um nome diferente para cada servidor cPanel. No Actions, os jobs de backup compartilham o mesmo grupo de concorrência. No cPanel, mantenha o mesmo `BACKUP_LOCK_DIR` para as execuções manuais e automáticas do servidor.
 - `keep` define a quantidade máxima. `max_storage_mb` é opcional e usa MB decimal. A cota conta os arquivos de backup criptografados daquele banco. O uso pode subir temporariamente durante o upload e a verificação. Se o backup sozinho exceder a cota, ele é rejeitado antes do upload. Se couber sozinho, os arquivos mais antigos são removidos até satisfazer os dois limites.
 - Use um prefixo gravável e sem bloqueio de exclusão para `backups/`. Se uma exclusão falhar, a rotina tenta desfazer o novo upload e alerta. Uma trava que impeça a exclusão da cópia recém-enviada pode deixar o uso acima da cota até a regularização. Para retenção imutável, use uma segunda cópia com credenciais independentes.
+- `ignore_data` e `ignore_table` são listas opcionais por banco. A primeira preserva a estrutura (incluindo índices, constraints e gatilhos) e omite as linhas originais. A segunda exclui a tabela inteira. Use nomes exatos, sem o prefixo do banco. Tabelas repetidas, sobreposição entre listas e tabelas que não puderem ser validadas causam falha do backup. As listas vazias equivalem ao backup integral.
+- Antes de excluir uma tabela ou seus dados, confira as dependências de chaves estrangeiras, views, rotinas e gatilhos. O dump preserva as definições dependentes e elas podem exigir a tabela ou os dados excluídos.
 - Em **Actions → Backup de bancos → Run workflow**, informe o identificador para backup manual de um banco do Actions. No cPanel, acrescente `--database identificador` ao comando do executor. Um backup manual não muda a agenda e conta para a retenção do banco.
 
 ## Agendamento no Cloudflare

@@ -24,3 +24,19 @@ jobs:
         with:
           node-version: '24'
       - run: node --test tests/test_scheduler.mjs
+
+  restore:
+    name: Restauração com filtros (${{ matrix.database }})
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        database: [mysql, mariadb]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: sudo apt-get update && sudo apt-get install -y age
+      - run: bash tests/restore_filters.sh "${{ matrix.database }}"
