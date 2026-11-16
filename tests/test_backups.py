@@ -1,11 +1,15 @@
+import gzip
 import io
 import json
+import os
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
-from db_backups import BackupError, due, retention_plan, run_backup, send_telegram, stamp
+from db_backups import BackupError, OBJECT_NAME, due, make_archive, retention_plan, run_backup, send_telegram, stamp
 
 
 def backup(key, size):
@@ -114,3 +118,41 @@ class StorageTests(unittest.TestCase):
             }
             with self.assertRaisesRegex(BackupError, "integridade"):
                 store.upload(archive, "backup.age", digest)
+
+
+class EncryptionOptionTests(unittest.TestCase):
+    def test_both_archive_formats_are_recognized(self):
+        basename = "20261116T101000000000Z_manual_" + "a" * 32
+        for suffix in (".sql.gz", ".sql.gz.age"):
+            with self.subTest(suffix=suffix):
+                self.assertIsNotNone(OBJECT_NAME.fullmatch(basename + suffix))
+        self.assertIsNone(OBJECT_NAME.fullmatch(basename + ".sql.gz.tmp"))
+
+    def test_plain_backup_only_requires_gzip(self):
+        sql = b"SELECT 1;\n"
+        credentials = {"database": "app", "user": "test", "password": "test"}
+
+        def dump(command, *, stdout, **kwargs):
+            self.assertEqual(command[0], "mysqldump")
+            stdout.write(sql)
+            stdout.flush()
+            return Mock(returncode=0)
+
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {
+            "AGE_RECIPIENT": "",
+            "TEST_DB": json.dumps(credentials),
+        }), patch("db_backups.subprocess.run", side_effect=dump):
+            output = Path(directory) / "backup.sql.gz"
+            config = {"type": "mysql", "credentials_env": "TEST_DB", "encrypt": False}
+            make_archive(config, output.parent, output)
+            self.assertEqual(gzip.decompress(output.read_bytes()), sql)
+
+    def test_backup_defaults_to_encryption(self):
+        credentials = {"database": "app", "user": "test", "password": "test"}
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {
+            "AGE_RECIPIENT": "",
+            "TEST_DB": json.dumps(credentials),
+        }):
+            output = Path(directory) / "backup.sql.gz.age"
+            with self.assertRaisesRegex(BackupError, "AGE_RECIPIENT"):
+                make_archive({"type": "mysql", "credentials_env": "TEST_DB"}, output.parent, output)
