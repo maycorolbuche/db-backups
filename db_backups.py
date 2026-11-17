@@ -431,9 +431,9 @@ def prepare_mysql_dump(db, directory, deadline):
     options.write_text("[client]\n" + settings)
     options.chmod(0o600)
     client = "mysqldump" if db["type"] == "mysql" else "mariadb-dump"
-    flags = ["--single-transaction", "--quick", "--hex-blob", "--skip-dump-date", "--order-by-primary"]
+    flags = ["--single-transaction", "--quick", "--hex-blob", "--skip-dump-date", "--order-by-primary", "--verbose"]
     if db["type"] == "mysql":
-        flags += ["--no-tablespaces", "--set-gtid-purged=OFF"]
+        flags += ["--no-tablespaces", "--set-gtid-purged=OFF", "--column-statistics=0"]
     flags += tls_flags
     command = [client, f"--defaults-file={options}", *flags]
 
