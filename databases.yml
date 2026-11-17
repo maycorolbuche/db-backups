@@ -96,6 +96,7 @@ databases:
   mrpag:
     name: MRPag
     type: d1
+    encrypt: false
     database_id: "b1229985-c3ad-4f03-9451-116fae1e3174"
     credentials_env: D1_API_TOKEN
     executor: actions
