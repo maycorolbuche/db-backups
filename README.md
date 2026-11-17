@@ -34,6 +34,7 @@ Para conexão local via socket, omita `ssl-ca` e use `host: localhost` e, se nec
 
 Use [databases.example.yml](databases.example.yml) como modelo. O cadastro ativo fica em `databases.yml` e começa vazio.
 
+- `status` é opcional e tem padrão `active`. Use `inactive` para pausar backups agendados e manuais e silenciar alertas de atraso. A configuração e as cópias existentes são preservadas. Para voltar a executar backups, defina `active`.
 - `schedule` usa cron de cinco campos no fuso definido. O Cloudflare Cron dispara o Actions a cada dez minutos e o workflow consulta quais bancos estão no horário de backup. O início do job depende da fila do GitHub. Cada execução considera a janela mais recente vencida. Uma interrupção longa gera um backup atual quando o executor voltar, pois o dump não consegue reconstruir estados passados.
 - `executor` vincula cada banco a um único executor. Use um nome diferente para cada servidor cPanel. No Actions, os jobs de backup compartilham o mesmo grupo de concorrência. No cPanel, mantenha o mesmo `BACKUP_LOCK_DIR` para as execuções manuais e automáticas do servidor.
 - `keep` define a quantidade máxima. `max_storage_mb` é opcional e usa MB decimal. A cota conta os arquivos de backup daquele banco, com ou sem criptografia. O uso pode subir temporariamente durante o upload e a verificação. Se o backup sozinho exceder a cota, ele é rejeitado antes do upload. Se couber sozinho, os arquivos mais antigos são removidos até satisfazer os dois limites.

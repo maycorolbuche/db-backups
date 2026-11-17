@@ -4,6 +4,7 @@ timezone: America/Sao_Paulo
 
 databases:
   home-care:
+    status: active # Opcional. Use inactive para pausar os backups.
     name: Home Care
     type: mysql
     executor: actions
