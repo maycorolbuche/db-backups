@@ -141,3 +141,25 @@ class ExportObjectTests(unittest.TestCase):
                 self.assertEqual(query.call_args_list[2].args[1], f"SHOW CREATE {kind} `sample`")
                 self.assertIn(f"CREATE {kind} `sample`()", sql)
                 self.assertIn("CREATE DATABASE IF NOT EXISTS `app`", sql)
+
+
+class DumpRowContextTests(unittest.TestCase):
+    def test_reports_table_and_row_for_connection_loss(self):
+        for quote in ("'", "`"):
+            with self.subTest(quote=quote):
+                stderr = (
+                    f"mysqldump: Error: 2013: Lost connection to MySQL server during query "
+                    f"when dumping table {quote}anexos{quote} at row: 12543\n"
+                    "private-user private-password"
+                ).encode()
+                result = dump_error(stderr, 2)
+                self.assertIn("Erro MySQL/MariaDB 2013", result)
+                self.assertIn("Tabela: anexos", result)
+                self.assertIn("Posição da linha no dump: 12543", result)
+                self.assertNotIn("private-", result)
+
+    def test_reports_packet_error_without_inventing_row(self):
+        result = dump_error(b"mysqldump: Got error: 1153: packet too large", 2)
+        self.assertIn("pacote maior que o limite", result)
+        self.assertNotIn("Tabela:", result)
+        self.assertNotIn("Posição", result)
