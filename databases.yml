@@ -73,6 +73,7 @@ databases:
       - PAGINAS_ACESSOS_LOGS
       - PAGINAS_ATUALIZAR_LOGS
   asl:
+    status: inactive
     name: ASL Cuidadores
     type: mysql
     encrypt: false
