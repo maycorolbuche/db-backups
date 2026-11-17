@@ -92,5 +92,3 @@ databases:
       - LOGS_PLANTOES_AUTOMATICOS
       - _BKP_AGENDA
       - _BKP_AGENDA_RESP
-    ignore_table:
-      - ___BKP_DISP_FUNCIONARIOS
