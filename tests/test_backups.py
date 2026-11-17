@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
-from db_backups import BackupError, OBJECT_NAME, due, make_archive, retention_plan, run_backup, send_telegram, stamp
+from db_backups import BackupError, OBJECT_NAME, due, make_archive, retention_plan, run_backup, send_telegram, stamp, main, monitor
 
 
 def backup(key, size):
@@ -206,3 +206,40 @@ class DeduplicationTests(unittest.TestCase):
                     self.assertTrue(run_backup(self.store, "test", config, timezone.utc, slot))
                 self.store.metadata.assert_not_called()
                 self.store.upload.assert_called_once()
+
+
+class InactiveDatabaseTests(unittest.TestCase):
+    def test_scheduled_backup_skips_inactive_database(self):
+        with patch("db_backups.load_config", return_value=(timezone.utc, {
+            "asl": {"executor": "actions", "status": "inactive"},
+        })), patch("db_backups.Storage") as storage, patch("sys.argv", [
+            "db_backups.py", "run", "--executor", "actions",
+        ]):
+            self.assertEqual(main(), 0)
+            storage.assert_not_called()
+
+    def test_manual_backup_refuses_inactive_database(self):
+        with patch("db_backups.load_config", return_value=(timezone.utc, {
+            "asl": {"executor": "actions", "status": "inactive"},
+        })), patch("db_backups.Storage") as storage, patch("sys.argv", [
+            "db_backups.py", "run", "--executor", "actions", "--database", "asl",
+        ]):
+            self.assertEqual(main(), 1)
+            storage.assert_not_called()
+
+    def test_monitor_keeps_inventory_without_notifying_inactive_database(self):
+        key = "backups/asl/20261116T100000000000Z_manual_" + "a" * 32 + ".sql.gz"
+        store = Mock()
+        store.backups.return_value = [{"Key": key, "Size": 42}]
+        store.metadata.return_value = {"sha256": "archive-hash"}
+        store.read.return_value = {}
+        with TemporaryDirectory() as folder:
+            path = Path(folder) / "snapshot.json"
+            self.assertTrue(monitor(store, {"asl": {"status": "inactive"}}, timezone.utc,
+                                    datetime(2026, 11, 16, tzinfo=timezone.utc), path))
+            status = json.loads(path.read_text())["asl"]
+        self.assertEqual(status["status"], "inactive")
+        self.assertEqual(status["latest"]["key"], key)
+        self.assertFalse(status["overdue"])
+        store.notify.assert_not_called()
+        store.retry.assert_not_called()
