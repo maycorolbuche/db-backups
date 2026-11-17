@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -243,3 +244,53 @@ class InactiveDatabaseTests(unittest.TestCase):
         self.assertFalse(status["overdue"])
         store.notify.assert_not_called()
         store.retry.assert_not_called()
+
+
+class D1BackupTests(unittest.TestCase):
+    config = {
+        "type": "d1", "database_id": "b1229985-c3ad-4f03-9451-116fae1e3174",
+        "credentials_env": "D1_API_TOKEN", "encrypt": False,
+    }
+
+    def test_exports_d1_sql_and_reuses_hash_and_compression_pipeline(self):
+        sql = b"CREATE TABLE users (id INTEGER PRIMARY KEY);\n"
+        url = "https://example.com/download.sql?signature=fixture"
+        pending = io.BytesIO(json.dumps({
+            "success": True, "result": {"status": "active", "at_bookmark": "bookmark"},
+        }).encode())
+        complete = io.BytesIO(json.dumps({
+            "success": True, "result": {"status": "complete", "result": {"signed_url": url}},
+        }).encode())
+        download = io.BytesIO(sql)
+        download.headers = {"Content-Length": str(len(sql))}
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {
+            "D1_API_TOKEN": "fixture", "R2_ACCOUNT_ID": "a" * 32,
+        }), patch("db_backups.time.sleep"), patch(
+            "db_backups.urlopen", side_effect=[pending, complete, download]
+        ) as request, patch("db_backups.prepare_mysql_dump") as mysql:
+            output = Path(directory) / "backup.sql.gz"
+            digest = make_archive(self.config, output.parent, output)
+            self.assertEqual(gzip.decompress(output.read_bytes()), sql)
+            self.assertEqual(digest, hashlib.sha256(sql).hexdigest())
+        mysql.assert_not_called()
+        initial = request.call_args_list[0].args[0]
+        poll = request.call_args_list[1].args[0]
+        self.assertTrue(initial.full_url.endswith(self.config["database_id"] + "/export"))
+        self.assertEqual(initial.get_header("Authorization"), "Bearer fixture")
+        self.assertEqual(json.loads(initial.data), {"output_format": "polling"})
+        self.assertEqual(json.loads(poll.data), {"output_format": "polling", "current_bookmark": "bookmark"})
+        self.assertEqual(request.call_args_list[2].args, (url,))
+
+    def test_rejects_incomplete_download(self):
+        from db_backups import export_d1
+
+        response = io.BytesIO(b"partial")
+        response.headers = {"Content-Length": "20"}
+        complete = io.BytesIO(json.dumps({
+            "success": True, "result": {"status": "complete", "signed_url": "https://example.com/dump.sql"},
+        }).encode())
+        with patch.dict(os.environ, {"D1_API_TOKEN": "fixture", "R2_ACCOUNT_ID": "a" * 32}), patch(
+            "db_backups.urlopen", side_effect=[complete, response]
+        ):
+            with self.assertRaisesRegex(BackupError, "vazio ou incompleto"):
+                export_d1(self.config, io.BytesIO(), time.monotonic() + 30)
