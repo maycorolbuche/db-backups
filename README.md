@@ -1,6 +1,6 @@
 # db-backups
 
-Backup lógico de MySQL e MariaDB por banco, com arquivos compactados com criptografia configurável em um bucket privado do Cloudflare R2. O Cloudflare Cron dispara o workflow do GitHub Actions, que executa os bancos acessíveis a partir do runner e monitora também os que rodam pelo cron do cPanel.
+Backup lógico de MySQL, MariaDB e Cloudflare D1 por banco, com arquivos compactados com criptografia configurável em um bucket privado do Cloudflare R2. O Cloudflare Cron dispara o workflow do GitHub Actions, que executa os bancos acessíveis a partir do runner e monitora também os que rodam pelo cron do cPanel.
 
 ## Configuração inicial
 
@@ -18,6 +18,7 @@ Backup lógico de MySQL e MariaDB por banco, com arquivos compactados com cripto
 | Secret | `TELEGRAM_BOT_TOKEN` | Token do bot |
 | Secret | `TELEGRAM_CHAT_ID` | ID do grupo |
 | Secret opcional | `TELEGRAM_MESSAGE_THREAD_ID` | ID do tópico. Vazio envia para o grupo. |
+| Secret | `D1_API_TOKEN` | Token Cloudflare com permissão de exportação do D1. Usado apenas por bancos D1. |
 | Secret | `DB_CREDENTIALS` | Credenciais do banco de exemplo. Para outros bancos, adicione um Secret por banco e mapeie no bloco `env` de `.github/workflows/backups.yml`. |
 
 O JSON de conexão tem o formato abaixo. Use uma conta dedicada com os privilégios necessários para ler dados e exportar views, rotinas, eventos e gatilhos. Para verificar o certificado de uma conexão remota, configure `ssl-ca` com o caminho da CA. No Actions, o arquivo público da CA pode ser distribuído no repositório ou use o bundle de CA do cliente quando adequado. Os nomes e credenciais reais ficam na variável de ambiente indicada em `credentials_env`.
@@ -45,6 +46,12 @@ Use [databases.example.yml](databases.example.yml) como modelo. O cadastro ativo
 - Antes de excluir uma tabela ou seus dados, confira as dependências de chaves estrangeiras, views, rotinas e gatilhos. O dump preserva as definições dependentes e elas podem exigir a tabela ou os dados excluídos.
 - Backups agendados com SQL idêntico ao último backup válido e com o mesmo formato são registrados como verificados sem criar outro arquivo. O Telegram avisa quando isso acontece. A comparação usa o SHA-256 do SQL antes de compactar e criptografar. Cópias anteriores sem esse metadado precisam de uma nova cópia como referência. O dump ordena linhas por chave primária ou índice único disponível. Em tabelas sem essas chaves, diferenças na ordem podem mudar o hash.
 - Em **Actions → Backup de bancos → Run workflow**, informe o identificador para backup manual de um banco do Actions. No cPanel, acrescente `--database identificador` ao comando do executor. Um backup manual não muda a agenda e conta para a retenção do banco.
+
+## Bancos Cloudflare D1
+
+Use `type: d1`, o UUID em `database_id` e o nome do Secret em `credentials_env`. O executor usa a API HTTPS da Cloudflare. Se o D1 estiver em outra conta que o bucket R2, defina `account_id` no cadastro desse banco. O dump inclui todo o esquema e os dados e segue o mesmo fluxo de compactação, criptografia, comparação, retenção e notificações.
+
+A exportação do D1 pode indisponibilizar consultas enquanto estiver em andamento. Agende fora do horário de pico. O arquivo SQL resultante pode ser importado em um D1 de teste com `npx wrangler d1 execute NOME_D1_TESTE --remote --file=./backup.sql`.
 
 ## Agendamento no Cloudflare
 

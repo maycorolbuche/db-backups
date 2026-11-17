@@ -33,3 +33,15 @@ databases:
     grace_minutes: 120
     keep: 12
     # Sem listas de exclusão, todas as tabelas entram com estrutura e dados.
+
+  cloudflare-app:
+    name: Aplicação no Cloudflare
+    type: d1
+    database_id: "00000000-0000-0000-0000-000000000000"
+    # account_id é opcional. Se omitido, usa R2_ACCOUNT_ID.
+    credentials_env: D1_API_TOKEN
+    executor: actions
+    schedule: "15 1 * * *"
+    grace_minutes: 40
+    keep: 7
+    encrypt: true
