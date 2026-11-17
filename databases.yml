@@ -103,3 +103,13 @@ databases:
     schedule: "0 23 * * *"
     grace_minutes: 40
     keep: 3
+  louvorja:
+    name: LouvorJA
+    type: d1
+    encrypt: false
+    database_id: "4705d209-b837-4cc3-b515-610470555605"
+    credentials_env: DB_CREDENTIALS_LJA
+    executor: actions
+    schedule: "0/5 * * * *"
+    grace_minutes: 40
+    keep: 3

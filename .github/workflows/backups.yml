@@ -36,6 +36,7 @@ jobs:
       DB_CREDENTIALS_DGH: ${{ secrets.DB_CREDENTIALS_DGH }}
       DB_CREDENTIALS_MDAWIKI: ${{ secrets.DB_CREDENTIALS_MDAWIKI }}
       DB_CREDENTIALS_ASL: ${{ secrets.DB_CREDENTIALS_ASL }}
+      DB_CREDENTIALS_LJA: ${{ secrets.DB_CREDENTIALS_LJA }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
