@@ -65,6 +65,8 @@ def load_config(path, *, validate_filters=True):
     for db_id, db in databases.items():
         if not isinstance(db_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", db_id):
             raise BackupError("Identificador de banco inválido.")
+        if db.get("status", "active") not in ("active", "inactive"):
+            raise BackupError(f"{db_id}: status deve ser active ou inactive.")
         if db["type"] not in {"mysql", "mariadb"}:
             raise BackupError(f"{db_id}: tipo de banco inválido.")
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", db["executor"]):
@@ -622,25 +624,30 @@ def monitor(store, databases, zone, now, snapshot):
     result = {}
     for db_id, db in databases.items():
         channel = f"monitor-{db_id}"
+        status = db.get("status", "active")
         try:
-            store.retry(channel)
+            if status == "active":
+                store.retry(channel)
             backups = store.backups(db_id)
             latest = backups[0] if backups else None
-            expected = due(db, zone, now - timedelta(minutes=db["grace_minutes"]))
-            latest_scheduled = max((slot_of(obj) for obj in backups if slot_of(obj) != "manual"), default="")
-            completed = store.read(f"scheduled/{db_id}.json").get("slot", "") if backups else ""
-            overdue = max(latest_scheduled, completed) < expected
+            overdue = False
             alert_key = f"monitor/{db_id}.json"
-            alert = store.read(alert_key)
-            if overdue and alert.get("slot") != expected:
-                name = db.get("name", db_id)
-                store.notify(channel, f"⚠️ Backup atrasado — {name}\n"
-                             f"Execução prevista em {display_stamp(expected, zone)}\n"
-                             f"Tolerância: {db['grace_minutes']} min")
-                store.write(alert_key, {"slot": expected})
-            elif not overdue and alert:
-                store.delete(alert_key)
+            if status == "active":
+                expected = due(db, zone, now - timedelta(minutes=db["grace_minutes"]))
+                latest_scheduled = max((slot_of(obj) for obj in backups if slot_of(obj) != "manual"), default="")
+                completed = store.read(f"scheduled/{db_id}.json").get("slot", "") if backups else ""
+                overdue = max(latest_scheduled, completed) < expected
+                alert = store.read(alert_key)
+                if overdue and alert.get("slot") != expected:
+                    name = db.get("name", db_id)
+                    store.notify(channel, f"⚠️ Backup atrasado — {name}\n"
+                                 f"Execução prevista em {display_stamp(expected, zone)}\n"
+                                 f"Tolerância: {db['grace_minutes']} min")
+                    store.write(alert_key, {"slot": expected})
+                elif not overdue and alert:
+                    store.delete(alert_key)
             result[db_id] = {
+                "status": status,
                 "latest": {"key": latest["Key"], "bytes": latest["Size"],
                            "sha256": store.metadata(latest["Key"]).get("sha256")} if latest else None,
                 "last_attempt": store.read(f"status/{db_id}.json"),
@@ -675,7 +682,12 @@ def main():
         if args.database:
             if args.database not in selected:
                 raise BackupError("Banco inexistente ou associado a outro executor.")
-            selected = {args.database: selected[args.database]}
+            db = selected[args.database]
+            if db.get("status", "active") == "inactive":
+                raise BackupError(f"{args.database}: banco inativo. Altere o status para active antes de executar.")
+            selected = {args.database: db}
+        else:
+            selected = {key: db for key, db in selected.items() if db.get("status", "active") == "active"}
         if not selected:
             return 0
         lock_dir = Path(os.getenv("BACKUP_LOCK_DIR", str(Path.home() / ".db-backups")))
