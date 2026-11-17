@@ -13,7 +13,8 @@ import time
 from contextlib import ExitStack, closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from uuid import uuid4
 from xml.etree import ElementTree
@@ -67,8 +68,19 @@ def load_config(path, *, validate_filters=True):
             raise BackupError("Identificador de banco inválido.")
         if db.get("status", "active") not in ("active", "inactive"):
             raise BackupError(f"{db_id}: status deve ser active ou inactive.")
-        if db["type"] not in {"mysql", "mariadb"}:
+        if db["type"] not in {"mysql", "mariadb", "d1"}:
             raise BackupError(f"{db_id}: tipo de banco inválido.")
+        if db["type"] == "d1":
+            database_id = db.get("database_id", "")
+            if not isinstance(database_id, str) or not re.fullmatch(
+                r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", database_id
+            ):
+                raise BackupError(f"{db_id}: database_id do D1 deve ser um UUID.")
+            account_id = db.get("account_id")
+            if account_id is not None and (
+                not isinstance(account_id, str) or not re.fullmatch(r"[0-9a-fA-F]{32}", account_id)
+            ):
+                raise BackupError(f"{db_id}: account_id do D1 inválido.")
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", db["executor"]):
             raise BackupError(f"{db_id}: executor inválido.")
         if not re.fullmatch(r"[A-Z_][A-Z0-9_]*", db["credentials_env"]):
@@ -104,6 +116,11 @@ def validate_table_filters(db_id, db):
             raise BackupError(f"{db_id}: {option} deve ser uma lista de nomes de tabelas.")
         if len(tables) != len(set(tables)):
             raise BackupError(f"{db_id}: {option} contém tabelas repetidas.")
+    if db.get("type") == "d1" and (
+        db.get("ignore_data") or db.get("ignore_table") or
+        any(not db.get(option, True) for option in ("export_procedures", "export_functions", "export_views"))
+    ):
+        raise BackupError(f"{db_id}: a exportação D1 gera um dump completo. Remova os filtros de MySQL/MariaDB.")
     overlap = set(db.get("ignore_data", [])) & set(db.get("ignore_table", []))
     if overlap:
         raise BackupError(f"{db_id}: tabelas nas duas listas: {', '.join(sorted(overlap))}.")
@@ -425,7 +442,7 @@ def selected_routines(command, database, kind, deadline):
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def make_archive(db, directory, output):
+def prepare_mysql_dump(db, directory, deadline):
     try:
         credentials = json.loads(os.environ[db["credentials_env"]])
         database = credentials.pop("database")
@@ -446,13 +463,7 @@ def make_archive(db, directory, output):
     if db["type"] == "mysql":
         flags += ["--no-tablespaces", "--set-gtid-purged=OFF"]
     flags += tls_flags
-    recipient = None
-    if db.get("encrypt", True):
-        recipient = os.getenv("AGE_RECIPIENT", "").strip()
-        if not re.fullmatch(r"age1[0-9a-z]+", recipient):
-            raise BackupError("AGE_RECIPIENT deve conter uma chave pública age.")
     command = [client, f"--defaults-file={options}", *flags]
-    deadline = time.monotonic() + 45 * 60
 
     for table in db.get("ignore_data", []) + db.get("ignore_table", []):
         probe = subprocess.run([*command, "--no-data", "--skip-triggers", database, table],
@@ -478,6 +489,78 @@ def make_archive(db, directory, output):
             kind = "PROCEDURE" if export_procedures else "FUNCTION"
             routine_sql = selected_routines(metadata_command, database, kind, deadline)
 
+    return routine_sql, dump_sections(db, database, command, excluded_views)
+
+
+def export_d1(db, destination, deadline):
+    token = os.getenv(db["credentials_env"], "").strip()
+    if not token:
+        raise BackupError(f"Configure o token D1 em {db['credentials_env']}.")
+    account = db.get("account_id") or os.getenv("R2_ACCOUNT_ID", "")
+    if not re.fullmatch(r"[0-9a-fA-F]{32}", account):
+        raise BackupError("Configure o account_id do D1 ou R2_ACCOUNT_ID.")
+    endpoint = f"https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{db['database_id']}/export"
+    payload = {"output_format": "polling"}
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise BackupError("Tempo limite aguardando a exportação D1.")
+        request = Request(endpoint, data=json.dumps(payload).encode("utf-8"),
+                          headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                          method="POST")
+        try:
+            with urlopen(request, timeout=min(30, remaining)) as response:
+                envelope = json.load(response)
+        except HTTPError as error:
+            raise BackupError(f"A API de exportação D1 retornou HTTP {error.code}.") from None
+        except (URLError, ValueError, TimeoutError):
+            raise BackupError("Não foi possível obter a resposta da API de exportação D1.") from None
+
+        state = envelope.get("result") or {}
+        if not envelope.get("success") or state.get("status") == "error" or state.get("error"):
+            raise BackupError("A Cloudflare recusou a exportação D1. Confira o token, a conta e o ID do banco.")
+        download = state.get("signed_url") or (state.get("result") or {}).get("signed_url")
+        if download:
+            break
+        bookmark = state.get("at_bookmark") or payload.get("current_bookmark")
+        if not bookmark or state.get("status") == "complete":
+            raise BackupError("A API D1 retornou um estado de exportação incompleto.")
+        payload["current_bookmark"] = bookmark
+        time.sleep(max(0, min(1, deadline - time.monotonic())))
+
+    url = urlsplit(download)
+    if url.scheme != "https" or not url.hostname or url.username is not None:
+        raise BackupError("A API D1 retornou uma URL de download inválida.")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise BackupError("Tempo limite antes de baixar a exportação D1.")
+    try:
+        # A URL assinada já autoriza o download. O token da API não é enviado.
+        with urlopen(download, timeout=min(30, remaining)) as response:
+            expected = response.headers.get("Content-Length")
+            total = 0
+            while chunk := response.read(1024 * 1024):
+                if time.monotonic() >= deadline:
+                    raise BackupError("Tempo limite baixando a exportação D1.")
+                destination.write(chunk)
+                total += len(chunk)
+            if not total or (expected is not None and total != int(expected)):
+                raise BackupError("O arquivo SQL exportado pelo D1 está vazio ou incompleto.")
+    except HTTPError as error:
+        raise BackupError(f"O download da exportação D1 retornou HTTP {error.code}.") from None
+    except (URLError, ValueError, TimeoutError):
+        raise BackupError("Não foi possível baixar a exportação D1.") from None
+
+
+def make_archive(db, directory, output):
+    recipient = None
+    if db.get("encrypt", True):
+        recipient = os.getenv("AGE_RECIPIENT", "").strip()
+        if not re.fullmatch(r"age1[0-9a-z]+", recipient):
+            raise BackupError("AGE_RECIPIENT deve conter uma chave pública age.")
+    deadline = time.monotonic() + 45 * 60
+    is_d1 = db["type"] == "d1"
+    routine_sql, commands = (b"", []) if is_d1 else prepare_mysql_dump(db, directory, deadline)
     sql_hash_path = directory / "sql.sha256"
     with ExitStack() as streams:
         destination = subprocess.PIPE if recipient else streams.enter_context(output.open("xb"))
@@ -502,7 +585,9 @@ def make_archive(db, directory, output):
             if routine_sql:
                 hasher.stdin.write(routine_sql)
                 hasher.stdin.flush()
-            for label, dump in dump_sections(db, database, command, excluded_views):
+            if is_d1:
+                export_d1(db, hasher.stdin, deadline)
+            for label, dump in commands:
                 result = subprocess.run(dump, stdout=hasher.stdin, stderr=subprocess.PIPE,
                                         timeout=max(0, deadline - time.monotonic()))
                 if result.returncode:
