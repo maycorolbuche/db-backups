@@ -67,11 +67,8 @@ databases:
     export_functions: false
     export_views: false
     ignore_data:
-      - AGENDA_LOGS
-      - LOGS
-      - LOGS_EVENTOS
-      - LOGS_PLANTOES_AUTOMATICOS
-      - _BKP_AGENDA
-      - _BKP_AGENDA_RESP
-    ignore_table:
-      - ___BKP_DISP_FUNCIONARIOS
+      - ACESSOS_LOGS
+      - CRONJOB_LOGS
+      - EMAIL_LOGS
+      - PAGINAS_ACESSOS_LOGS
+      - PAGINAS_ATUALIZAR_LOGS
