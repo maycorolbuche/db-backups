@@ -47,33 +47,6 @@ class TableFiltersTests(unittest.TestCase):
         self.assertNotIn("--ignore-table-data=app.logs", sections[1][1])
 
 
-class DumpErrorTests(unittest.TestCase):
-    def test_reports_cause_without_copying_connection_details(self):
-        cases = [
-            (b"mysqldump: Got error: 1045: Access denied for 'private-user'@'private-host'", "autenticação recusada"),
-            (b"mysqldump: Got error: 2026: SSL connection error", "falha de TLS"),
-            (b"mysqldump: Couldn't find table: \"ACESSOS\"", "Tabela não encontrada"),
-            (b"mysqldump: unknown variable 'private-value'", "rejeitou uma opção"),
-            (b"unexpected private-user private-host private-value", "código 2"),
-        ]
-        for stderr, reason in cases:
-            with self.subTest(reason=reason):
-                result = dump_error(stderr, 2)
-                self.assertIn(reason, result)
-                self.assertNotIn("private-", result)
-
-    def test_reports_only_the_origin_ip_on_connection_rejection(self):
-        cases = [
-            (b"Got error: 1045: Access denied for user 'private-user'@'203.0.113.10'", "203.0.113.10"),
-            (b"Got error: 1130: Host '2001:db8::10' is not allowed to connect", "2001:db8::10"),
-        ]
-        for stderr, address in cases:
-            with self.subTest(address=address):
-                result = dump_error(stderr, 2)
-                self.assertIn(f"IP de origem informado pelo servidor: {address}.", result)
-                self.assertNotIn("private-user", result)
-
-
 class DumpTlsTests(unittest.TestCase):
     def test_mysql_requires_tls_when_ca_is_omitted(self):
         self.assertEqual(dump_tls_flags("mysql", {"host": "db.example.com"}), ["--ssl-mode=REQUIRED"])
@@ -94,21 +67,6 @@ class DumpTlsTests(unittest.TestCase):
             dump_tls_flags("mariadb", {"host": "db.example.com", "ssl-ca": "mysql-ca.pem"}),
             ["--ssl-verify-server-cert"],
         )
-
-
-class DumpStructureErrorTests(unittest.TestCase):
-    def test_uses_server_error_from_command_failure(self):
-        stderr = b"mysqldump: Couldn't execute 'SHOW CREATE TABLE hidden': SELECT denied for private-user (1142)\n"
-        self.assertEqual(
-            dump_error(stderr, 2),
-            "Erro MySQL/MariaDB 1142: usuário sem permissão para a operação na tabela.",
-        )
-
-    def test_identifies_missing_routine_privileges_without_copying_names(self):
-        stderr = b"mysqldump: private-user has insufficient privileges to SHOW CREATE FUNCTION hidden"
-        result = dump_error(stderr, 2)
-        self.assertIn("sem permissão para exportar a definição de uma rotina", result)
-        self.assertNotIn("private-user", result)
 
 
 class ExportObjectTests(unittest.TestCase):
@@ -143,39 +101,15 @@ class ExportObjectTests(unittest.TestCase):
                 self.assertIn("CREATE DATABASE IF NOT EXISTS `app`", sql)
 
 
-class DumpRowContextTests(unittest.TestCase):
-    def test_reports_table_and_row_for_connection_loss(self):
-        for quote in ("'", "`"):
-            with self.subTest(quote=quote):
-                stderr = (
-                    f"mysqldump: Error: 2013: Lost connection to MySQL server during query "
-                    f"when dumping table {quote}anexos{quote} at row: 12543\n"
-                    "private-user private-password"
-                ).encode()
-                result = dump_error(stderr, 2)
-                self.assertIn("Erro MySQL/MariaDB 2013", result)
-                self.assertIn("Tabela: anexos", result)
-                self.assertIn("Posição da linha no dump: 12543", result)
-                self.assertNotIn("private-", result)
 
-    def test_reports_packet_error_without_inventing_row(self):
-        result = dump_error(b"mysqldump: Got error: 1153: packet too large", 2)
-        self.assertIn("pacote maior que o limite", result)
-        self.assertNotIn("Tabela:", result)
-        self.assertNotIn("Posição", result)
+class OriginalDumpErrorTests(unittest.TestCase):
+    def test_preserves_original_message_and_line_breaks(self):
+        message = "mysqldump: Error 2013: Lost connection\r\nwhen dumping table `ANEXOS` at row: 42\n"
+        self.assertEqual(dump_error(message.encode("utf-8"), 2), message)
 
+    def test_keeps_unknown_errors_without_interpretation(self):
+        message = "mysqldump: an unexpected error (9999)\n"
+        self.assertEqual(dump_error(message.encode(), 2), message)
 
-class DumpUnquotedTableTests(unittest.TestCase):
-    def test_extracts_table_with_or_without_row(self):
-        for context, row in [
-            ("when dumping table anexos at row: 123", "123"),
-            ("when dumping table anexos", None),
-            ("when dumping table `anexos` at row: 0", "0"),
-        ]:
-            with self.subTest(context=context):
-                result = dump_error(f"mysqldump: Error: 2013: Lost connection {context}".encode(), 2)
-                self.assertIn("Tabela: anexos", result)
-                if row is None:
-                    self.assertNotIn("Posição da linha", result)
-                else:
-                    self.assertIn(f"Posição da linha no dump: {row}", result)
+    def test_reports_exit_code_when_stderr_is_empty(self):
+        self.assertIn("código 2 sem informar", dump_error(b"", 2))
