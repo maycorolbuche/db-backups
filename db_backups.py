@@ -2,7 +2,6 @@
 import argparse
 import fcntl
 import hashlib
-import ipaddress
 import json
 import os
 import re
@@ -156,16 +155,31 @@ def send_telegram(message):
         if not thread.isascii() or not thread.isdecimal() or int(thread) < 1:
             raise BackupError("TELEGRAM_MESSAGE_THREAD_ID inválido.")
         payload["message_thread_id"] = int(thread)
-    request = Request(f"https://api.telegram.org/bot{token}/sendMessage",
-                      data=json.dumps(payload).encode(),
-                      headers={"Content-Type": "application/json"})
-    try:
-        with urlopen(request, timeout=20) as response:
-            if not json.load(response).get("ok"):
-                raise BackupError("Telegram rejeitou a mensagem.")
-    except HTTPError as error:
-        raise BackupError(f"Telegram retornou HTTP {error.code}.") from None
-
+    # Limita cada mensagem a até 3500 unidades UTF-16, preservando todo o texto.
+    chunks = []
+    chunk = []
+    units = 0
+    for char in message:
+        size = 2 if ord(char) > 0xFFFF else 1
+        if units + size > 3500:
+            chunks.append("".join(chunk))
+            chunk = []
+            units = 0
+        chunk.append(char)
+        units += size
+    chunks.append("".join(chunk))
+    for part in chunks:
+        payload["text"] = part
+        request = Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                          data=json.dumps(payload).encode(),
+                          headers={"Content-Type": "application/json"})
+        try:
+            with urlopen(request, timeout=20) as response:
+                if not json.load(response).get("ok"):
+                    raise BackupError("Telegram rejeitou a mensagem.")
+        except HTTPError as error:
+            raise BackupError(f"Telegram retornou HTTP {error.code}.") from None
+    
 
 class Storage:
     def __init__(self):
@@ -323,63 +337,9 @@ def dump_sections(db, database, command, excluded_views=()):
 
 def dump_error(stderr, returncode):
     message = stderr.decode("utf-8", errors="replace")
-    match = re.search(r"(?i)(?:got error|error):\s*(\d{4})\b", message)
-    if not match:
-        match = re.search(
-            r"(?im)^[^\n]*couldn['’]t execute [^\n]*\((\d{4})\)[ \t]*$", message
-        )
-    if match:
-        code = match.group(1)
-        reasons = {
-            "1044": "usuário sem acesso ao banco",
-            "1045": "autenticação recusada pelo servidor",
-            "1049": "banco de dados não encontrado",
-            "1109": "tabela não encontrada",
-            "1130": "origem da conexão não autorizada pelo servidor",
-            "1142": "usuário sem permissão para a operação na tabela",
-            "1146": "tabela não encontrada",
-            "1227": "usuário sem o privilégio exigido para a operação",
-            "1356": "view inválida ou sem permissão sobre seus objetos",
-            "1153": "pacote maior que o limite permitido pelo servidor",
-            "2006": "servidor encerrou a conexão",
-            "2002": "não foi possível conectar ao servidor",
-            "2003": "não foi possível conectar ao servidor",
-            "2005": "host do banco não encontrado",
-            "2013": "conexão perdida durante a operação",
-            "2026": "falha de TLS ou na validação do certificado",
-            "2059": "plugin de autenticação indisponível no cliente",
-        }
-        reason = reasons.get(code, "operação recusada pelo cliente ou servidor")
-        result = f"Erro MySQL/MariaDB {code}: {reason}."
-        if code in {"1045", "1130"}:
-            origin = re.search(r"@'([^']+)'", message) if code == "1045" else re.search(
-                r"(?i)\bhost '([^']+)' is not allowed", message
-            )
-            if origin:
-                try:
-                    address = ipaddress.ip_address(origin.group(1))
-                except ValueError:
-                    pass
-                else:
-                    result += f" IP de origem informado pelo servidor: {address}."
-        context = re.search(
-            r"(?i)\bwhen dumping table\s+(?:['`]([^\r\n]{1,256}?)['`]|([^\s]{1,256}))"
-            r"(?:\s+at row:\s*(\d+)\b)?", message
-        )
-        if context:
-            table = context.group(1) or context.group(2)
-            table = "".join(char for char in table if char.isprintable())
-            result += f"\nTabela: {table}"
-            if context.group(3):
-                result += f"\nPosição da linha no dump: {context.group(3)}."
-        return result
-    if re.search(r"(?i)insufficient privileges to show create (?:function|procedure)", message):
-        return "Usuário sem permissão para exportar a definição de uma rotina (SHOW CREATE FUNCTION ou PROCEDURE)."
-    if "couldn't find table:" in message.lower():
-        return "Tabela não encontrada. Confira o nome e as maiúsculas e minúsculas."
-    if re.search(r"(?i)unknown (?:option|variable)", message):
-        return "O cliente de dump rejeitou uma opção. Confira a compatibilidade do executável."
-    return f"O cliente de dump encerrou com código {returncode}."
+    if message:
+        return message
+    return f"O cliente de dump encerrou com código {returncode} sem informar uma mensagem de erro."
 
 
 def dump_tls_flags(engine, credentials):
