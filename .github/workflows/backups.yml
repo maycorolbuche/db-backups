@@ -33,6 +33,7 @@ jobs:
       DB_CREDENTIALS_MX_SYS_ADMIN: ${{ secrets.DB_CREDENTIALS_MX_SYS_ADMIN }}
       DB_CREDENTIALS_ELETRONICAUTOMACOES: ${{ secrets.DB_CREDENTIALS_ELETRONICAUTOMACOES }}
       DB_CREDENTIALS_DGH: ${{ secrets.DB_CREDENTIALS_DGH }}
+      DB_CREDENTIALS_MDAWIKI: ${{ secrets.DB_CREDENTIALS_MDAWIKI }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
