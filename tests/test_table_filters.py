@@ -163,3 +163,19 @@ class DumpRowContextTests(unittest.TestCase):
         self.assertIn("pacote maior que o limite", result)
         self.assertNotIn("Tabela:", result)
         self.assertNotIn("Posição", result)
+
+
+class DumpUnquotedTableTests(unittest.TestCase):
+    def test_extracts_table_with_or_without_row(self):
+        for context, row in [
+            ("when dumping table anexos at row: 123", "123"),
+            ("when dumping table anexos", None),
+            ("when dumping table `anexos` at row: 0", "0"),
+        ]:
+            with self.subTest(context=context):
+                result = dump_error(f"mysqldump: Error: 2013: Lost connection {context}".encode(), 2)
+                self.assertIn("Tabela: anexos", result)
+                if row is None:
+                    self.assertNotIn("Posição da linha", result)
+                else:
+                    self.assertIn(f"Posição da linha no dump: {row}", result)

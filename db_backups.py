@@ -363,12 +363,15 @@ def dump_error(stderr, returncode):
                 else:
                     result += f" IP de origem informado pelo servidor: {address}."
         context = re.search(
-            r"(?i)\bwhen dumping table\s+(['`])([^\r\n]{1,256}?)\1"
-            r"\s+at row:\s*(\d+)\b", message
+            r"(?i)\bwhen dumping table\s+(?:['`]([^\r\n]{1,256}?)['`]|([^\s]{1,256}))"
+            r"(?:\s+at row:\s*(\d+)\b)?", message
         )
         if context:
-            table = "".join(char for char in context.group(2) if char.isprintable())
-            result += f"\nTabela: {table}\nPosição da linha no dump: {context.group(3)}."
+            table = context.group(1) or context.group(2)
+            table = "".join(char for char in table if char.isprintable())
+            result += f"\nTabela: {table}"
+            if context.group(3):
+                result += f"\nPosição da linha no dump: {context.group(3)}."
         return result
     if re.search(r"(?i)insufficient privileges to show create (?:function|procedure)", message):
         return "Usuário sem permissão para exportar a definição de uma rotina (SHOW CREATE FUNCTION ou PROCEDURE)."
