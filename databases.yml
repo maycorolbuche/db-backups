@@ -72,3 +72,25 @@ databases:
       - EMAIL_LOGS
       - PAGINAS_ACESSOS_LOGS
       - PAGINAS_ATUALIZAR_LOGS
+  asl:
+    name: ASL Cuidadores
+    type: mysql
+    encrypt: false
+    executor: actions
+    credentials_env: DB_CREDENTIALS_ASL
+    schedule: "0/10 * * * *"
+    grace_minutes: 40
+    keep: 10
+    max_storage_mb: 1500
+    export_procedures: false
+    export_functions: false
+    export_views: false
+    ignore_data:
+      - AGENDA_LOGS
+      - LOGS
+      - LOGS_EVENTOS
+      - LOGS_PLANTOES_AUTOMATICOS
+      - _BKP_AGENDA
+      - _BKP_AGENDA_RESP
+    ignore_table:
+      - ___BKP_DISP_FUNCIONARIOS
