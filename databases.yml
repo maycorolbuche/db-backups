@@ -107,6 +107,7 @@ databases:
     name: LouvorJA
     type: d1
     encrypt: false
+    account_id: ebfd182d9bc3913163758a88118752f5
     database_id: "4705d209-b837-4cc3-b515-610470555605"
     credentials_env: DB_CREDENTIALS_LJA
     executor: actions
