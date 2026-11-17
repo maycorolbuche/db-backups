@@ -92,3 +92,13 @@ databases:
       - LOGS_PLANTOES_AUTOMATICOS
       - _BKP_AGENDA
       - _BKP_AGENDA_RESP
+  mrpag:
+    name: MRPag
+    type: d1
+    database_id: "b1229985-c3ad-4f03-9451-116fae1e3174"
+    credentials_env: D1_API_TOKEN
+    executor: actions
+    schedule: "0/5 * * * *"
+    grace_minutes: 40
+    keep: 7
+    encrypt: true
