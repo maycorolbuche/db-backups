@@ -340,6 +340,8 @@ def dump_error(stderr, returncode):
             "1146": "tabela não encontrada",
             "1227": "usuário sem o privilégio exigido para a operação",
             "1356": "view inválida ou sem permissão sobre seus objetos",
+            "1153": "pacote maior que o limite permitido pelo servidor",
+            "2006": "servidor encerrou a conexão",
             "2002": "não foi possível conectar ao servidor",
             "2003": "não foi possível conectar ao servidor",
             "2005": "host do banco não encontrado",
@@ -360,6 +362,13 @@ def dump_error(stderr, returncode):
                     pass
                 else:
                     result += f" IP de origem informado pelo servidor: {address}."
+        context = re.search(
+            r"(?i)\bwhen dumping table\s+(['`])([^\r\n]{1,256}?)\1"
+            r"\s+at row:\s*(\d+)\b", message
+        )
+        if context:
+            table = "".join(char for char in context.group(2) if char.isprintable())
+            result += f"\nTabela: {table}\nPosição da linha no dump: {context.group(3)}."
         return result
     if re.search(r"(?i)insufficient privileges to show create (?:function|procedure)", message):
         return "Usuário sem permissão para exportar a definição de uma rotina (SHOW CREATE FUNCTION ou PROCEDURE)."
