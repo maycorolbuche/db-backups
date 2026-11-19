@@ -103,6 +103,10 @@ databases:
     schedule: "0 23 * * *"
     grace_minutes: 40
     keep: 3
+    ignore_data:
+      - sessions
+      - charge_emails
+      - charge_email_attempts
   louvorja:
     name: LouvorJA
     type: d1
