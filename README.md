@@ -49,7 +49,7 @@ Use [databases.example.yml](databases.example.yml) como modelo. O cadastro ativo
 
 ## Bancos Cloudflare D1
 
-Use `type: d1`, o UUID em `database_id` e o nome do Secret em `credentials_env`. O executor usa a API HTTPS da Cloudflare. Se o D1 estiver em outra conta que o bucket R2, defina `account_id` no cadastro desse banco. O dump inclui todo o esquema e os dados e segue o mesmo fluxo de compactação, criptografia, comparação, retenção e notificações.
+Use `type: d1`, o UUID em `database_id` e o nome do Secret em `credentials_env`. O executor usa a API HTTPS da Cloudflare. Se o D1 estiver em outra conta que o bucket R2, defina `account_id` no cadastro desse banco. O dump segue o mesmo fluxo de compactação, criptografia, comparação, retenção e notificações. `ignore_data` preserva a estrutura das tabelas selecionadas e omite seus INSERTs do SQL final. A API exporta o banco completo, que é baixado para um arquivo temporário no executor e filtrado antes do hash e da compactação. O espaço temporário precisa comportar esse SQL. Os registros originais no D1 são preservados. Uma tabela inexistente em `ignore_data` causa falha do backup.
 
 A exportação do D1 pode indisponibilizar consultas enquanto estiver em andamento. Agende fora do horário de pico. O arquivo SQL resultante pode ser importado em um D1 de teste com `npx wrangler d1 execute NOME_D1_TESTE --remote --file=./backup.sql`.
 
