@@ -45,3 +45,5 @@ databases:
     grace_minutes: 40
     keep: 7
     encrypt: true
+    ignore_data: # Estrutura preservada e dados omitidos também no D1.
+      - sessions
