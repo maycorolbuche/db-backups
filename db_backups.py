@@ -1,11 +1,13 @@
 """Create, retain and monitor encrypted MySQL/MariaDB backups."""
 import argparse
+import codecs
 import fcntl
 import hashlib
 import json
 import os
 import re
 import subprocess
+import sqlite3
 import sys
 import tempfile
 import time
@@ -116,10 +118,10 @@ def validate_table_filters(db_id, db):
         if len(tables) != len(set(tables)):
             raise BackupError(f"{db_id}: {option} contém tabelas repetidas.")
     if db.get("type") == "d1" and (
-        db.get("ignore_data") or db.get("ignore_table") or
+        db.get("ignore_table") or
         any(not db.get(option, True) for option in ("export_procedures", "export_functions", "export_views"))
     ):
-        raise BackupError(f"{db_id}: a exportação D1 gera um dump completo. Remova os filtros de MySQL/MariaDB.")
+        raise BackupError(f"{db_id}: D1 aceita ignore_data, mas não ignore_table ou filtros de rotinas/views.")
     overlap = set(db.get("ignore_data", [])) & set(db.get("ignore_table", []))
     if overlap:
         raise BackupError(f"{db_id}: tabelas nas duas listas: {', '.join(sorted(overlap))}.")
@@ -464,6 +466,55 @@ def prepare_mysql_dump(db, directory, deadline):
     return routine_sql, dump_sections(db, database, command, excluded_views)
 
 
+def filter_d1_data(source, destination, ignored_tables, deadline):
+    """Remove INSERT/REPLACE de tabelas selecionadas sem alterar o restante do SQL."""
+    ignored = {table.casefold() for table in ignored_tables}
+    found = set()
+    identifier = r"""(?:"((?:[^"]|"")*)"|'((?:[^']|'')*)'|`((?:[^`]|``)*)`|\[([^\]]+)\]|([^\s(;.]+))"""
+    create = re.compile(r"(?is)^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?" + identifier)
+    insert = re.compile(r"(?is)^(?:INSERT(?:\s+OR\s+\w+)?|REPLACE)\s+INTO\s+" + identifier)
+    comments = re.compile(r"(?s)^\s*(?:(?:--[^\n]*(?:\n|$)|/\*.*?\*/)\s*)*")
+    decoder = codecs.getincrementaldecoder("utf-8")()
+    statement = ""
+
+    def emit(sql):
+        header = comments.sub("", sql, count=1)
+        definition = create.match(header)
+        if definition:
+            found.add(next(value for value in definition.groups() if value is not None)
+                      .replace('""', '"').replace("''", "'").replace("``", "`").casefold())
+        row = insert.match(header)
+        if row:
+            table = next(value for value in row.groups() if value is not None)
+            table = table.replace('""', '"').replace("''", "'").replace("``", "`")
+            if table.casefold() in ignored:
+                return
+        destination.write(sql.encode("utf-8"))
+
+    while True:
+        if time.monotonic() >= deadline:
+            raise BackupError("Tempo limite filtrando o SQL do D1.")
+        chunk = source.read(1024 * 1024)
+        text = decoder.decode(chunk, final=not chunk)
+        parts = text.split(";")
+        for part in parts[:-1]:
+            statement += part + ";"
+            if sqlite3.complete_statement(statement):
+                emit(statement)
+                statement = ""
+        statement += parts[-1]
+        if not chunk:
+            break
+    if statement:
+        if not comments.sub("", statement, count=1).strip():
+            destination.write(statement.encode("utf-8"))
+        else:
+            raise BackupError("O SQL exportado pelo D1 contém uma instrução incompleta.")
+    missing = ignored - found
+    if missing:
+        raise BackupError("Tabelas de ignore_data não encontradas no dump D1: " + ", ".join(sorted(missing)))
+
+
 def export_d1(db, destination, deadline):
     token = os.getenv(db["credentials_env"], "").strip()
     if not token:
@@ -511,13 +562,21 @@ def export_d1(db, destination, deadline):
         with urlopen(download, timeout=min(30, remaining)) as response:
             expected = response.headers.get("Content-Length")
             total = 0
-            while chunk := response.read(1024 * 1024):
-                if time.monotonic() >= deadline:
-                    raise BackupError("Tempo limite baixando a exportação D1.")
-                destination.write(chunk)
-                total += len(chunk)
-            if not total or (expected is not None and total != int(expected)):
-                raise BackupError("O arquivo SQL exportado pelo D1 está vazio ou incompleto.")
+            ignored = db.get("ignore_data", [])
+            with tempfile.TemporaryFile() as downloaded:
+                while chunk := response.read(1024 * 1024):
+                    if time.monotonic() >= deadline:
+                        raise BackupError("Tempo limite baixando a exportação D1.")
+                    if ignored:
+                        downloaded.write(chunk)
+                    else:
+                        destination.write(chunk)
+                    total += len(chunk)
+                if not total or (expected is not None and total != int(expected)):
+                    raise BackupError("O arquivo SQL exportado pelo D1 está vazio ou incompleto.")
+                if ignored:
+                    downloaded.seek(0)
+                    filter_d1_data(downloaded, destination, ignored, deadline)
     except HTTPError as error:
         raise BackupError(f"O download da exportação D1 retornou HTTP {error.code}.") from None
     except (URLError, ValueError, TimeoutError):
