@@ -515,6 +515,20 @@ def filter_d1_data(source, destination, ignored_tables, deadline):
         raise BackupError("Tabelas de ignore_data não encontradas no dump D1: " + ", ".join(sorted(missing)))
 
 
+def d1_export_error(envelope, token, status=None):
+    details = {key: envelope[key] for key in ("errors", "messages") if envelope.get(key)}
+    state = envelope.get("result")
+    if isinstance(state, dict):
+        details.update({key: state[key] for key in ("status", "error", "messages") if state.get(key)})
+    label = f"A API de exportação D1 retornou HTTP {status}." if status else "A Cloudflare recusou a exportação D1."
+    if details:
+        original = json.dumps(details, ensure_ascii=False, indent=2)
+        if token:
+            original = original.replace(token, "[TOKEN]")
+        return label + "\nResposta da Cloudflare:\n" + original
+    return label + " A API não informou detalhes do erro."
+
+
 def export_d1(db, destination, deadline):
     token = os.getenv(db["credentials_env"], "").strip()
     if not token:
@@ -535,13 +549,19 @@ def export_d1(db, destination, deadline):
             with urlopen(request, timeout=min(30, remaining)) as response:
                 envelope = json.load(response)
         except HTTPError as error:
-            raise BackupError(f"A API de exportação D1 retornou HTTP {error.code}.") from None
+            try:
+                envelope = json.load(error)
+            except (ValueError, OSError):
+                envelope = {}
+            finally:
+                error.close()
+            raise BackupError(d1_export_error(envelope, token, error.code)) from None
         except (URLError, ValueError, TimeoutError):
             raise BackupError("Não foi possível obter a resposta da API de exportação D1.") from None
 
         state = envelope.get("result") or {}
         if not envelope.get("success") or state.get("status") == "error" or state.get("error"):
-            raise BackupError("A Cloudflare recusou a exportação D1. Confira o token, a conta e o ID do banco.")
+            raise BackupError(d1_export_error(envelope, token))
         download = state.get("signed_url") or (state.get("result") or {}).get("signed_url")
         if download:
             break
