@@ -294,3 +294,32 @@ class D1BackupTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(BackupError, "vazio ou incompleto"):
                 export_d1(self.config, io.BytesIO(), time.monotonic() + 30)
+
+
+class D1ErrorDetailsTests(unittest.TestCase):
+    def test_reports_original_api_error_without_download_url(self):
+        from db_backups import d1_export_error
+        envelope = {
+            "success": False,
+            "errors": [{"code": 7500, "message": "Export failed: original detail"}],
+            "result": {"status": "error", "error": "Database busy", "signed_url": "private-url"},
+        }
+        message = d1_export_error(envelope, "token")
+        self.assertIn("7500", message)
+        self.assertIn("Export failed: original detail", message)
+        self.assertIn("Database busy", message)
+        self.assertNotIn("private-url", message)
+
+    def test_http_error_includes_cloudflare_response(self):
+        from urllib.error import HTTPError
+        from db_backups import export_d1
+        error = HTTPError("https://api.cloudflare.com", 403, "Forbidden", {}, io.BytesIO(json.dumps({
+            "success": False, "errors": [{"code": 10000, "message": "Authentication error"}],
+        }).encode()))
+        with patch.dict(os.environ, {"D1_API_TOKEN": "token", "R2_ACCOUNT_ID": "a" * 32}), patch(
+            "db_backups.urlopen", side_effect=error
+        ):
+            with self.assertRaisesRegex(BackupError, "HTTP 403") as failure:
+                export_d1({"credentials_env": "D1_API_TOKEN", "database_id": "fixture"},
+                          io.BytesIO(), time.monotonic() + 30)
+        self.assertIn("Authentication error", str(failure.exception))
