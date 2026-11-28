@@ -1,0 +1,109 @@
+{
+  "asl": {
+    "bytes": 0,
+    "last_attempt": {
+      "at": "20261119T130101321645Z",
+      "error": "exportação e compactação: Exportação dos dados: -- Connecting to base_mdsys_sp.mysql.dbaas.com.br...\n-- Starting transaction...\n-- Setting savepoint...\n-- Retrieving table structure for table ADIANTAMENTO...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table AGENDA...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table AGENDA_GERA_FUNC...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table AGENDA_PARAM...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table AGENDA_RESP...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ARQ_REMESSA...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ARQ_REMESSA_DADOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ARQ_SISPAG...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ARQ_SISPAG_DADOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table AVALIACAO...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table BANCOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table BOLETOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table BOLETOS_PLANTOES...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table CARGOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table CONFIG...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table CONFIG_RELATORIOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table CONTAS_BANCARIAS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table CONTRATOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DADOS_EMPRESA...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DADOS_TEMP...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DASHBOARDS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DIAS_SEMANA...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DISPONIBILIDADE...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DISP_FUNCIONARIOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DOCUMENTOS_PDF...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DOCUMENTOS_PDF_CAMPOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DOCUMENTOS_PDF_ITENS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table DOCUMENTOS_PDF_PESSOAS_CAMPOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table EMAILS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ENTREVISTAS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table EQUIPE_PLANTAO...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ESCOLARIDADE...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ESCOLARIDADE_STATUS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ETIQUETAS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table FLUXO_CAIXA...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table FLUXO_CAIXA_MENSAL...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table FORMA_PGTO...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table GRAU_AFINIDADE...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table GRAU_DEPENDENCIA...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table GRUPOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table INFO_PLANTAO_CLIENTE...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table MESES...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table MODULOS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table MODULOS_TIPO...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table NOTAS_DEBITO...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table ONLINE...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table OPERADORAS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table PAGAMENTO_ITENS...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table PERIODICIDADE...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table PERMISSOES...\n-- Sending SELECT query...\n-- Retrieving rows...\n-- Rolling back to savepoint sp...\n-- Retrieving table structure for table PESSOAS...\n-- Sending SELECT query...\n-- Retrieving rows...\nmysqldump: Error 2013: Lost connection to MySQL server during query when dumping table `PESSOAS` at row: 3253\n"
+    },
+    "latest": null,
+    "overdue": false,
+    "retained": 0,
+    "status": "inactive"
+  },
+  "dgh": {
+    "bytes": 228544268,
+    "last_attempt": {
+      "at": "20261128T060050104491Z",
+      "error": null,
+      "outcome": "uploaded"
+    },
+    "latest": {
+      "bytes": 25465318,
+      "key": "backups/dgh/20261128T060050104491Z_20261128T060000000000Z_c81e3d70d2bc4fcdabde19c03316f3a6.sql.gz",
+      "sha256": "0e7b5d6ae66ad0c9e46e369a7c5e6ad01d771c7e84b5ab4386a1ad678fa0e7d7"
+    },
+    "overdue": false,
+    "retained": 9,
+    "status": "active"
+  },
+  "eletronicautomacoes": {
+    "bytes": 999542,
+    "last_attempt": {
+      "at": "20261128T050044702956Z",
+      "error": null,
+      "outcome": "unchanged"
+    },
+    "latest": {
+      "bytes": 333209,
+      "key": "backups/eletronicautomacoes/20261120T050038292223Z_20261120T050000000000Z_37c18759d97241c6b220fd6f12e5c4c3.sql.gz",
+      "sha256": "08cfac5ccfc095c4e21d805f79427be208e38ad6d5e4071ed4cce06e0e483cd8"
+    },
+    "overdue": false,
+    "retained": 3,
+    "status": "active"
+  },
+  "louvorja": {
+    "bytes": 29578387,
+    "last_attempt": {
+      "at": "20261128T010030771765Z",
+      "error": null,
+      "outcome": "uploaded"
+    },
+    "latest": {
+      "bytes": 5919252,
+      "key": "backups/louvorja/20261128T010030771765Z_20261128T010000000000Z_bcf713f553124d1bb63a5b602633dc5b.sql.gz",
+      "sha256": "4f95e8bb267b5746a2380e81b625bb2469e8bb55e84e02d35daf21d1e5153822"
+    },
+    "overdue": false,
+    "retained": 5,
+    "status": "active"
+  },
+  "mdawiki": {
+    "bytes": 14546059,
+    "last_attempt": {
+      "at": "20261128T030050270293Z",
+      "error": null,
+      "outcome": "uploaded"
+    },
+    "latest": {
+      "bytes": 4905161,
+      "key": "backups/mdawiki/20261128T030050270293Z_20261128T030000000000Z_48a0b8a640624917a49dec0410149266.sql.gz",
+      "sha256": "0768ba426bc709abe804d1ea3afcaa12e5aece884ba1eb128673950920d0d6c7"
+    },
+    "overdue": false,
+    "retained": 3,
+    "status": "active"
+  },
+  "mrpag": {
+    "bytes": 27851,
+    "last_attempt": {
+      "at": "20261128T020029556574Z",
+      "error": null,
+      "outcome": "unchanged"
+    },
+    "latest": {
+      "bytes": 9290,
+      "key": "backups/mrpag/20261125T020032711141Z_20261125T020000000000Z_b987d95893794da8baea7b68ce33ee2c.sql.gz",
+      "sha256": "3fa99dde60870f0f6cef833dff7ff234659bb986261b068f28d5c4e8007f8b8e"
+    },
+    "overdue": false,
+    "retained": 3,
+    "status": "active"
+  },
+  "mx-sys-admin": {
+    "bytes": 258889,
+    "last_attempt": {
+      "at": "20261128T040045766000Z",
+      "error": null,
+      "outcome": "uploaded"
+    },
+    "latest": {
+      "bytes": 51776,
+      "key": "backups/mx-sys-admin/20261128T040045766000Z_20261128T040000000000Z_a4a25661d2364609b8990e6284665db5.sql.gz",
+      "sha256": "54b4c9b0614a3fb06fdc46169da2e551711d017e895c6ee3e0f3603529d6afe7"
+    },
+    "overdue": false,
+    "retained": 5,
+    "status": "active"
+  }
+}
